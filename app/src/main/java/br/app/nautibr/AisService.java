@@ -157,7 +157,7 @@ public class AisService extends Service {
    JSONArray box=new JSONArray().put(new JSONArray().put(Math.max(-90,lat-dlat)).put(Math.max(-180,lon-dlon)))
     .put(new JSONArray().put(Math.min(90,lat+dlat)).put(Math.min(180,lon+dlon)));
    String sub=new JSONObject().put("APIKey",key).put("BoundingBoxes",new JSONArray().put(box))
-    .put("FilterMessageTypes",new JSONArray().put("PositionReport").put("StandardClassBPositionReport").put("ExtendedClassBPositionReport")).toString();
+    .put("FilterMessageTypes",new JSONArray().put("PositionReport").put("StandardClassBPositionReport").put("ExtendedClassBPositionReport").put("ShipStaticData").put("StaticDataReport")).toString();
    ws=client.newWebSocket(new Request.Builder().url("wss://stream.aisstream.io/v0/stream").build(),new WebSocketListener(){
     boolean opened=false;
     @Override public void onOpen(WebSocket socket,Response response){
