@@ -52,7 +52,7 @@ public class MainActivity extends Activity {
  private Runnable aisReconnectTask;
  private volatile int aisTcpGeneration=0;
  @Override public void onCreate(Bundle state){
-  super.onCreate(state);
+  super.onCreate(state);AisService.installCrashHandler(this);
   IntentFilter filter=new IntentFilter("br.app.nautibr.AIS_EVENT");
   if(android.os.Build.VERSION.SDK_INT>=33)registerReceiver(aisReceiver,filter,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(aisReceiver,filter);
   charts=new File(getFilesDir(),"charts");charts.mkdirs();
@@ -143,19 +143,22 @@ public class MainActivity extends Activity {
  void callback(String fn,String value){runOnUiThread(()->web.evaluateJavascript(fn+"("+JSONObject.quote(value)+")",null));}
  void status(String s){callback("onStatus",s);}
  public class Bridge{
+  @JavascriptInterface public String aisDiagnostics(){return getSharedPreferences("ais_diagnostics",MODE_PRIVATE).getString("log","");}
+  @JavascriptInterface public void clearAisDiagnostics(){getSharedPreferences("ais_diagnostics",MODE_PRIVATE).edit().remove("log").apply();}
+
   @JavascriptInterface public void stopAISStream(){startService(new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STOP));}
   @JavascriptInterface public void connectAISStream(String key,double lat,double lon,double radius){
    if(key==null||key.trim().isEmpty()||key.length()>512||!Double.isFinite(lat)||Math.abs(lat)>90||!Double.isFinite(lon)||Math.abs(lon)>180||!Double.isFinite(radius)||radius<1||radius>300){callback("onAisStatus","AISStream: parâmetros inválidos");return;}
    Intent i=new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STREAM);
    i.putExtra("key",key.trim()).putExtra("lat",lat).putExtra("lon",lon).putExtra("radius",radius);
-   try{startForegroundService(i);}catch(Exception e){callback("onAisStatus","AISStream: "+e.getMessage());}
+   try{startForegroundService(i);}catch(Throwable e){AisService.diagnostic(MainActivity.this,"startForegroundService STREAM: "+android.util.Log.getStackTraceString(e));callback("onAisStatus","AISStream: "+e.getMessage());}
   }
-  @JavascriptInterface public void stopAIS(){stopService(new Intent(MainActivity.this,AisService.class));}
+  @JavascriptInterface public void stopAIS(){startService(new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STOP));}
   @JavascriptInterface public void connectAIS(String host,int port){
    if(host==null||host.length()>255||!host.matches("[a-zA-Z0-9.:-]+")||port<1||port>65535){callback("onAisStatus","AIS TCP: endereço inválido");return;}
    Intent i=new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_TCP);
    i.putExtra("host",host).putExtra("port",port);
-   try{startForegroundService(i);}catch(Exception e){callback("onAisStatus","AIS TCP: "+e.getMessage());}
+   try{startForegroundService(i);}catch(Throwable e){AisService.diagnostic(MainActivity.this,"startForegroundService TCP: "+android.util.Log.getStackTraceString(e));callback("onAisStatus","AIS TCP: "+e.getMessage());}
   }
   @JavascriptInterface public String aisCachedMessages(){
    return getSharedPreferences("ais_background",MODE_PRIVATE).getString("recent","[]");
