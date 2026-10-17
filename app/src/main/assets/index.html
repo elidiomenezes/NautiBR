@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 255px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:5px}#mapScreen>div:nth-of-type(3){flex-wrap:wrap}#mapScreen>div:nth-of-type(3) button{flex:1;min-width:90px}.nauti-graticule-label{background:transparent;border:0;pointer-events:none!important;white-space:nowrap}.nauti-graticule-label span{display:inline-block;padding:2px 4px;border-radius:3px;background:#fffde8e8;color:#142d3c;font:11px monospace;font-weight:700;box-shadow:0 1px 3px #0006}</style></head>
-<body><header><strong>NautiBR · build 67</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 68</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div><div id="ownStatus" style="font-size:12px;padding:5px 0">GPS: aguardando posição</div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -156,22 +156,11 @@ function updateGraticule(){
  const b=map.getBounds(),south=b.getSouth(),north=b.getNorth(),west=b.getWest(),east=b.getEast();
  const latStart=Math.ceil(south*60),latEnd=Math.floor(north*60);
  const lonStart=Math.ceil(west*60),lonEnd=Math.floor(east*60);
- const total=latEnd-latStart+lonEnd-lonStart+2;
- if(total>150)return;
- const fmt=(v,lat)=>{const a=Math.abs(v),deg=Math.floor(a),min=(a-deg)*60;
-  return deg+'°'+min.toFixed(0).padStart(2,'0')+'′'+(lat?(v<0?'S':'N'):(v<0?'W':'E'))};
- for(let i=latStart;i<=latEnd;i++){
-  const v=i/60;
-  L.polyline([[v,west],[v,east]],{pane:'nautiGrid',color:'#416779',weight:1,opacity:.5,interactive:false}).addTo(graticule);
-  const latLabel=L.marker([v,west],{pane:'nautiGrid',icon:L.divIcon({className:'nauti-graticule-label',html:'<span>'+fmt(v,true)+'</span>',iconSize:[68,18],iconAnchor:[0,9]}),interactive:false}).addTo(graticule);
-  latLabel.getElement().style.marginLeft='12px';
- }
- for(let i=lonStart;i<=lonEnd;i++){
-  const v=i/60;
-  L.polyline([[south,v],[north,v]],{pane:'nautiGrid',color:'#416779',weight:1,opacity:.5,interactive:false}).addTo(graticule);
-  const lonLabel=L.marker([south,v],{pane:'nautiGrid',icon:L.divIcon({className:'nauti-graticule-label',html:'<span>'+fmt(v,false)+'</span>',iconSize:[68,18],iconAnchor:[34,18]}),interactive:false}).addTo(graticule);
-  lonLabel.getElement().style.marginTop='-38px';
- }
+ if(latEnd-latStart+lonEnd-lonStart+2>150)return;
+ for(let i=latStart;i<=latEnd;i++)
+  L.polyline([[i/60,west],[i/60,east]],{pane:'nautiGrid',color:'#416779',weight:1,opacity:.5,interactive:false}).addTo(graticule);
+ for(let i=lonStart;i<=lonEnd;i++)
+  L.polyline([[south,i/60],[north,i/60]],{pane:'nautiGrid',color:'#416779',weight:1,opacity:.5,interactive:false}).addTo(graticule);
 }
 function openKap(c,focus=true){
  try{
@@ -432,7 +421,7 @@ function renderAis(){
  $('aisCount').textContent=count+' alvos na última hora · '+aisMessagesReceived+' mensagens / '+aisPositionsReceived+' posições recebidas';
 }
 setInterval(()=>{if(aisTargets.size)renderAis()},30000);
-if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:true,fadeAnimation:false,markerZoomAnimation:true,preferCanvas:true,maxZoom:24}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:24,maxNativeZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);map.createPane('nautiGrid');map.getPane('nautiGrid').style.zIndex='480';map.getPane('nautiGrid').style.pointerEvents='none';map.createPane('nautiNav');map.getPane('nautiNav').style.zIndex='490';map.getPane('nautiNav').style.pointerEvents='none';}
+if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:true,fadeAnimation:false,markerZoomAnimation:true,preferCanvas:true,maxZoom:24}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:24,maxNativeZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);map.createPane('nautiGrid');map.getPane('nautiGrid').style.zIndex='480';map.getPane('nautiGrid').style.pointerEvents='none';map.createPane('nautiNav');map.getPane('nautiNav').style.zIndex='490';map.getPane('nautiNav').style.pointerEvents='none';map.on('moveend zoomend',updateGraticule);updateGraticule();}
 else status('Falha ao carregar Leaflet incluído no APK');
 try{
  $('aisKey').value=localStorage.getItem('aisStreamKey')||'';
