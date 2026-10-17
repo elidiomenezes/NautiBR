@@ -277,11 +277,7 @@ public class MainActivity extends Activity {
   String content=out.toString("ISO-8859-1").replace("\\r","");
   if(!content.contains("BSB/")&&!content.contains("KNP/")&&!content.contains("CHK/"))
    throw new IOException("Cabeçalho BSB inválido: "+name);
-  JSONArray references=new JSONArray();
-  java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?im)^\\s*(?:KAP|FN|FILE)\\s*[/=:,]\\s*([^,\\s]+\\.kap)").matcher(content);
-  while(m.find())references.put(m.group(1));
-  JSONObject o=new JSONObject().put("name",name).put("format","BSB catalog").put("kapReferences",references).put("packageId",packageId);
-  String id=UUID.randomUUID().toString().replace("-","")+".bsb.json";
+  JSONArray references=knownRefs!=null?knownRefs:kapNamesInBsb(content);\n  JSONObject o=new JSONObject().put("name",name).put("format","BSB catalog").put("kapReferences",references).put("packageId",packageId);\n  String id=UUID.randomUUID().toString().replace("-","")+".bsb.json";
   try(OutputStream file=new FileOutputStream(new File(charts,id))){file.write(o.toString().getBytes("UTF-8"));}
  }
  boolean isKap(String name){return name.toLowerCase(Locale.ROOT).endsWith(".kap");}
