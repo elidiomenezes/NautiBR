@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-<title>NautiBR</title><style>
+<title>NautiBR</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>
 *{box-sizing:border-box}body{margin:0;background:#0d1824;color:#e7f0f7;font:15px system-ui,sans-serif}
 header{padding:12px 16px;background:#162b3b;display:flex;align-items:center;justify-content:space-between}
 header strong{font-size:19px}nav{display:flex;gap:8px;padding:10px;background:#132432}
@@ -18,16 +18,16 @@ button:active{background:#426b83}nav button{flex:1}.screen{display:none;padding:
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen');Native.listCharts()">Importar cartas</button><button onclick="Native.openNavy()">Site da Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen">
 <div id="mapname">Nenhuma carta selecionada</div>
-<div id="map"><img id="chartImage" alt="Carta náutica"><div id="empty">Importe uma carta raster e selecione-a na lista para visualizar.</div></div>
-<div style="display:flex;gap:8px;margin-top:8px"><button onclick="zoom(1.5)">Zoom +</button><button onclick="zoom(1/1.5)">Zoom −</button><button onclick="fit()">Ajustar</button></div>
-<p class="warning">Visualizador experimental sem georreferenciamento. Não usar para navegação real.</p>
+<div id="map"><div id="empty">Carregando mapa OpenStreetMap...</div></div>
+<div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
+<p class="warning">Mapa geográfico OpenStreetMap (necessita internet). Camadas GeoJSON em WGS84. Não usar para navegação real.</p>
 </section>
 <section class="screen" id="importScreen">
-<h3>Importar cartas náuticas</h3>
+<h3>Importar cartas e dados geográficos</h3>
 <p>Selecione arquivos PNG, JPG, WebP ou ZIP contendo imagens. É possível selecionar vários arquivos de uma vez.</p>
-<button onclick="Native.importCharts()">Selecionar arquivos do dispositivo</button>
+<button onclick="Native.importGeo()">Importar GeoJSON / ZIP geográfico</button><button onclick="Native.importCharts()">Importar imagens / ZIP de imagens</button><h4>Camadas geográficas</h4><div id="geofiles"></div><h4>Imagens sem coordenadas</h4>
 <div id="files"></div>
-<p class="warning">Arquivos KAP/BSB, GeoTIFF e PDF não são interpretados nesta versão. ZIPs contendo apenas esses formatos não serão exibidos. A carta é apresentada como imagem, sem coordenadas ou posição GPS.</p>
+<p class="warning">ZIPs GeoJSON são extraídos e suas feições posicionadas no mapa. Imagens não georreferenciadas são apenas armazenadas, não sobrepostas ao mapa. KAP/BSB, GeoTIFF e PDF ainda não são suportados.</p>
 </section>
 <div id="status"></div>
 <script>
@@ -45,4 +45,17 @@ map.addEventListener('pointermove',e=>{if(!points.has(e.pointerId))return;points
 for(let ev of ['pointerup','pointercancel','lostpointercapture'])map.addEventListener(ev,e=>{points.delete(e.pointerId);lastDist=0});
 map.addEventListener('wheel',e=>{e.preventDefault();let r=map.getBoundingClientRect();zoom(e.deltaY<0?1.15:1/1.15,e.clientX-r.left,e.clientY-r.top)},{passive:false});
 Native.listCharts();
+</script></body></html<script>
+const $=id=>document.getElementById(id);
+let map,layer;
+function screen(id){for(let s of document.querySelectorAll('.screen'))s.classList.toggle('active',s.id===id);if(id==='mapScreen'&&map)setTimeout(()=>map.invalidateSize(),80)}
+function onStatus(s){$('status').textContent=s}
+function onCharts(s){let files=JSON.parse(s),list=$('files');list.replaceChildren();if(!files.length){list.textContent='Nenhuma imagem importada.';return}
+for(let c of files){let row=document.createElement('div'),label=document.createElement('span');row.className='file';label.textContent=c.name+' (sem georreferenciamento)';row.append(label);list.append(row)}}
+function geoList(){let files=JSON.parse(Native.geoFiles()),list=$('geofiles');list.replaceChildren();if(!files.length){list.textContent='Nenhuma camada GeoJSON importada.';return}
+for(let c of files){let row=document.createElement('div'),label=document.createElement('span'),btn=document.createElement('button');row.className='file';label.textContent=c.name;btn.textContent='Mostrar no mapa';btn.onclick=()=>openGeo(c);row.append(label,btn);list.append(row)}}
+function onGeoImported(n){geoList()}
+function openGeo(c){try{let data=JSON.parse(Native.readGeo(c.id));if(layer)map.removeLayer(layer);layer=L.geoJSON(data,{onEachFeature:(feature,shape)=>{if(feature.properties)shape.bindPopup(Object.entries(feature.properties).slice(0,8).map(([k,v])=>k+': '+String(v)).join('<br>'))}}).addTo(map);if(layer.getBounds().isValid())map.fitBounds(layer.getBounds(),{padding:[20,20]});$('mapname').textContent=c.name;screen('mapScreen');onStatus('Camada geográfica carregada')}catch(e){onStatus('Erro ao abrir GeoJSON: '+e.message)}}
+if(window.L){map=L.map('map',{zoomControl:false}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);$('empty').remove();}else{onStatus('Não foi possível carregar o mapa. Verifique a internet.')}
+Native.listCharts();geoList();
 </script></body></html>
