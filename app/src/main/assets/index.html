@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 255px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:5px}#mapScreen>div:nth-of-type(3){flex-wrap:wrap}#mapScreen>div:nth-of-type(3) button{flex:1;min-width:90px}</style></head>
-<body><header><strong>NautiBR · build 57</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 58</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -137,12 +137,15 @@ function openKap(c,focus=true){
   const KapGrid=L.GridLayer.extend({
    createTile(coords,done){
     const canvas=document.createElement('canvas'),size=this.getTileSize();
-    const dpr=Math.min(3,Math.max(1,window.devicePixelRatio||1));
+    const dpr=Math.max(1,window.devicePixelRatio||1);
     canvas.width=Math.round(size.x*dpr);canvas.height=Math.round(size.y*dpr);
     canvas.style.width=size.x+"px";canvas.style.height=size.y+"px";
     const ctx=canvas.getContext('2d');
+    // Reconstruct every tile from the original full-resolution KAP strips.
+    // Smooth only when reducing source pixels; never blur magnified pixels.
     ctx.imageSmoothingEnabled=false;
     const z=coords.z,originX=coords.x*size.x,originY=coords.y*size.y;
+    canvas.dataset.renderZoom=String(z);
     const p0=map.project(corners[0],z),p1=map.project(corners[1],z),p2=map.project(corners[2],z);
     const aa=(p1.x-p0.x)/nativeW,bb=(p1.y-p0.y)/nativeW;
     const cc=(p2.x-p0.x)/nativeH,dd=(p2.y-p0.y)/nativeH;
@@ -155,6 +158,9 @@ function openKap(c,focus=true){
     const pts=[sourceAt(originX,originY),sourceAt(originX+size.x,originY),sourceAt(originX,originY+size.y),sourceAt(originX+size.x,originY+size.y)];
     const minX=Math.min(...pts.map(p=>p[0]))-2,maxX=Math.max(...pts.map(p=>p[0]))+2;
     const minY=Math.min(...pts.map(p=>p[1]))-2,maxY=Math.max(...pts.map(p=>p[1]))+2;
+    const pixelsPerSourcePixel=Math.max(Math.hypot(aa,bb),Math.hypot(cc,dd))*dpr;
+    ctx.imageSmoothingEnabled=pixelsPerSourcePixel<1;
+    if(ctx.imageSmoothingEnabled)ctx.imageSmoothingQuality='high';
     ctx.setTransform(aa*dpr,bb*dpr,cc*dpr,dd*dpr,(p0.x-originX)*dpr,(p0.y-originY)*dpr);
     const visible=tiles.filter(t=>t.x<maxX&&t.x+t.w>minX&&t.y<maxY&&t.y+t.h>minY);
     if(!visible.length){done(null,canvas);return canvas}
@@ -178,7 +184,7 @@ function openKap(c,focus=true){
    }
   });
   const layer=new KapGrid({tileSize:256,bounds,keepBuffer:2,
-   updateWhenZooming:false,updateWhenIdle:true,noWrap:true,opacity:1});
+   updateWhenZooming:true,updateWhenIdle:false,noWrap:true,opacity:1,maxZoom:24,minZoom:0});
   const px0=map.project(corners[0],0),px1=map.project(corners[1],0),px2=map.project(corners[2],0);
   const scaleX=Math.hypot(px1.x-px0.x,px1.y-px0.y)/nativeW;
   const scaleY=Math.hypot(px2.x-px0.x,px2.y-px0.y)/nativeH;
