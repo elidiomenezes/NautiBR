@@ -167,29 +167,57 @@ public class MainActivity extends Activity {
    if(x!=width)throw new IOException("Linha KAP incompleta: "+y+" ("+x+"/"+width+")");
    bmp.setPixels(row,0,width,0,y,width,1);
   }
-  if(refs.size()<2)throw new IOException("KAP sem pontos REF suficientes");
-  // Estimate geographic edges from REF controls; valid for north-up Mercator charts.
-  double minX=Double.POSITIVE_INFINITY,maxX=Double.NEGATIVE_INFINITY,minY=Double.POSITIVE_INFINITY,maxY=Double.NEGATIVE_INFINITY;
-  for(double[] r:refs){minX=Math.min(minX,r[0]);maxX=Math.max(maxX,r[0]);minY=Math.min(minY,r[1]);maxY=Math.max(maxY,r[1]);}
-  if(maxX==minX||maxY==minY)throw new IOException("REF degenerado");
-  int n=refs.size();
-  double mx=0,my=0,mlon=0,mm=0,xx=0,yy=0,xlon=0,ym=0;
-  for(double[] r:refs){double latm=Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));mx+=r[0];my+=r[1];mlon+=r[3];mm+=latm;}
-  mx/=n;my/=n;mlon/=n;mm/=n;
-  for(double[] r:refs){double latm=Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));xx+=(r[0]-mx)*(r[0]-mx);yy+=(r[1]-my)*(r[1]-my);xlon+=(r[0]-mx)*(r[3]-mlon);ym+=(r[1]-my)*(latm-mm);}
-  if(xx==0||yy==0)throw new IOException("REF sem escala");
-  double lonScale=xlon/xx,mercScale=ym/yy;
-  double lonLeft=mlon+(0-mx)*lonScale,lonRight=mlon+(width-mx)*lonScale;
-  double mercTop=mm+(0-my)*mercScale,mercBottom=mm+(height-my)*mercScale;
-  double latTop=Math.toDegrees(2*Math.atan(Math.exp(mercTop))-Math.PI/2);
-  double latBottom=Math.toDegrees(2*Math.atan(Math.exp(mercBottom))-Math.PI/2);
-  if(!Double.isFinite(latTop)||!Double.isFinite(latBottom)||Math.abs(latTop)>85||Math.abs(latBottom)>85)throw new IOException("Georreferência inválida");
+  if(refs.size()<4)throw new IOException("KAP exige ao menos 4 pontos REF para validação");
+  // Fit a full 2-D affine transform from pixel coordinates to spherical Mercator.
+  // Reject non-affine, non-Mercator and otherwise inconsistent charts.
+  double[][] normal=new double[3][3];double[] east=new double[3],north=new double[3];
+  for(double[] r:refs){
+   if(Math.abs(r[2])>=85)throw new IOException("Latitude REF fora de Mercator");
+   double[] v={1,r[0]/width,r[1]/height};
+   double mx=Math.toRadians(r[3]);
+   double my=Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));
+   for(int i=0;i<3;i++){east[i]+=v[i]*mx;north[i]+=v[i]*my;for(int j=0;j<3;j++)normal[i][j]+=v[i]*v[j];}
+  }
+  double[] lon=solve3(normal,east),merc=solve3(normal,north);
+  double pixelError=0,maxPixelError=0;
+  double determinant=lon[1]*merc[2]-lon[2]*merc[1];
+  if(Math.abs(determinant)<1e-14)throw new IOException("Transformação REF degenerada");
+  for(double[] r:refs){
+   double[] v={1,r[0]/width,r[1]/height};
+   double dx=lon[0]+lon[1]*v[1]+lon[2]*v[2]-Math.toRadians(r[3]);
+   double dy=merc[0]+merc[1]*v[1]+merc[2]*v[2]-Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));
+   double px=(merc[2]*dx-lon[2]*dy)/determinant*width;
+   double py=(-merc[1]*dx+lon[1]*dy)/determinant*height;
+   double err=Math.hypot(px,py);pixelError+=err*err;maxPixelError=Math.max(maxPixelError,err);
+  }
+  double rms=Math.sqrt(pixelError/refs.size());
+  if(maxPixelError>3 || rms>1.5)throw new IOException("Georreferenciamento rejeitado: RMS "+String.format(Locale.US,"%.2f",rms)+" px, máximo "+String.format(Locale.US,"%.2f",maxPixelError)+" px");
+  JSONArray corners=new JSONArray();
+  for(int[] p:new int[][]{{0,0},{width,0},{0,height},{width,height}}){
+   double x=(double)p[0]/width,y=(double)p[1]/height;
+   double longitude=Math.toDegrees(lon[0]+lon[1]*x+lon[2]*y);
+   double latitude=Math.toDegrees(2*Math.atan(Math.exp(merc[0]+merc[1]*x+merc[2]*y))-Math.PI/2);
+   if(!Double.isFinite(latitude)||!Double.isFinite(longitude)||Math.abs(latitude)>85||Math.abs(longitude)>180)throw new IOException("Coordenadas inválidas");
+   corners.put(new JSONArray().put(latitude).put(longitude));
+  }
   String id=UUID.randomUUID().toString().replace("-","");
   File png=new File(charts,id+".png");
   try(OutputStream out=new FileOutputStream(png)){if(!bmp.compress(Bitmap.CompressFormat.PNG,95,out))throw new IOException("Falha PNG");}finally{bmp.recycle();}
-  JSONObject meta=new JSONObject();meta.put("id",id+".png");meta.put("name",name);meta.put("bounds",new JSONArray().put(new JSONArray().put(Math.min(latTop,latBottom)).put(Math.min(lonLeft,lonRight))).put(new JSONArray().put(Math.max(latTop,latBottom)).put(Math.max(lonLeft,lonRight))));
-  meta.put("approximate",true);
+  JSONObject meta=new JSONObject();meta.put("id",id+".png");meta.put("name",name);meta.put("corners",corners);
+  meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);
   try(OutputStream out=new FileOutputStream(new File(charts,id+".kap.json"))){out.write(meta.toString().getBytes("UTF-8"));}
+ }
+ double[] solve3(double[][] matrix,double[] rhs)throws IOException{
+  double[][] a=new double[3][4];
+  for(int i=0;i<3;i++){System.arraycopy(matrix[i],0,a[i],0,3);a[i][3]=rhs[i];}
+  for(int i=0;i<3;i++){
+   int best=i;for(int j=i+1;j<3;j++)if(Math.abs(a[j][i])>Math.abs(a[best][i]))best=j;
+   if(Math.abs(a[best][i])<1e-12)throw new IOException("Pontos REF colineares");
+   double[] tmp=a[i];a[i]=a[best];a[best]=tmp;
+   double pivot=a[i][i];for(int k=i;k<4;k++)a[i][k]/=pivot;
+   for(int j=0;j<3;j++)if(j!=i){double factor=a[j][i];for(int k=i;k<4;k++)a[j][k]-=factor*a[i][k];}
+  }
+  return new double[]{a[0][3],a[1][3],a[2][3]};
  }
  boolean isGeo(String name){return name.toLowerCase(Locale.ROOT).matches(".*\\.(geojson|json)");}
  void saveGeo(InputStream in,String name)throws Exception{
