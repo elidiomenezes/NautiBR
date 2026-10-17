@@ -143,7 +143,7 @@ public class MainActivity extends Activity {
  void callback(String fn,String value){runOnUiThread(()->web.evaluateJavascript(fn+"("+JSONObject.quote(value)+")",null));}
  void status(String s){callback("onStatus",s);}
  public class Bridge{
-  @JavascriptInterface public void stopAISStream(){stopService(new Intent(MainActivity.this,AisService.class));}
+  @JavascriptInterface public void stopAISStream(){startService(new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STOP));}
   @JavascriptInterface public void connectAISStream(String key,double lat,double lon,double radius){
    if(key==null||key.trim().isEmpty()||key.length()>512||!Double.isFinite(lat)||Math.abs(lat)>90||!Double.isFinite(lon)||Math.abs(lon)>180||!Double.isFinite(radius)||radius<1||radius>300){callback("onAisStatus","AISStream: parâmetros inválidos");return;}
    Intent i=new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STREAM);
