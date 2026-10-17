@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 255px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:5px}#mapScreen>div:nth-of-type(3){flex-wrap:wrap}#mapScreen>div:nth-of-type(3) button{flex:1;min-width:90px}.nauti-graticule-label{background:transparent;border:0;pointer-events:none!important;white-space:nowrap}.nauti-graticule-label span{display:inline-block;padding:2px 4px;border-radius:3px;background:#fffde8e8;color:#142d3c;font:11px monospace;font-weight:700;box-shadow:0 1px 3px #0006}</style></head>
-<body><header><strong>NautiBR · build 68</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 69</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div><div id="ownStatus" style="font-size:12px;padding:5px 0">GPS: aguardando posição</div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -29,7 +29,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <div style="display:flex;gap:6px;margin-top:6px"><button onclick="startAisInternet()">Conectar AISStream</button><button onclick="stopAisInternet()">Desconectar internet</button><button onclick="forgetAisKey()">Apagar chave</button></div>
 <p id="aisStatus">AIS desconectado</p><details open><summary>Diagnóstico AISStream</summary><pre id="aisDiagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#081521;padding:10px;border-radius:8px;font-size:12px;max-height:260px;overflow:auto">Nenhum evento recebido</pre><p style="font-size:12px">Conexão executada pelo cliente WebSocket nativo do Android, sem usar WebView para a rede. <a style="color:#8ed9ff" href="https://aisstream.io/documentation/">Documentação AISStream</a></p></details>
 <div style="display:flex;gap:8px"><button onclick="focusAisTargets()">Ver alvos no mapa</button><button onclick="clearAis()">Limpar alvos</button></div>
-<p id="aisCount">0 alvos</p>
+<p id="aisCount">0 alvos</p><details id="aisTargetDetails"><summary>Lista de alvos AIS (debug)</summary><div style="max-height:35vh;overflow:auto"><table style="width:100%;font:11px monospace;border-collapse:collapse"><thead><tr><th>MMSI</th><th>Lat / Lon</th><th>COG</th><th>SOG kn</th><th>Idade</th><th>Fonte</th></tr></thead><tbody id="aisTargetRows"></tbody></table></div></details>
 <p class="warning">Posições AIS podem estar atrasadas, incorretas ou ausentes. Não utilizar para evitar colisões ou navegação operacional.</p>
 </section>
 <div id="status"></div><script>
@@ -406,17 +406,36 @@ function focusAisTargets(){
  if(pts.length){screen('mapScreen');map.fitBounds(L.latLngBounds(pts).pad(.12),{maxZoom:14});}
  else aisMessage('Nenhum alvo AIS recebido na última hora; confira a conexão');
 }
+function aisDestination(lat,lon,cog,knots,minutes=6){
+ const d=knots*minutes/60*1852,R=6371000,brg=cog*Math.PI/180;
+ const phi=lat*Math.PI/180,lambda=lon*Math.PI/180,delta=d/R;
+ const phi2=Math.asin(Math.sin(phi)*Math.cos(delta)+Math.cos(phi)*Math.sin(delta)*Math.cos(brg));
+ const lambda2=lambda+Math.atan2(Math.sin(brg)*Math.sin(delta)*Math.cos(phi),Math.cos(delta)-Math.sin(phi)*Math.sin(phi2));
+ return [phi2*180/Math.PI,lambda2*180/Math.PI];
+}
 function renderAis(){
  if(!map)return;
  if(!aisLayer)aisLayer=L.layerGroup().addTo(map);
  aisLayer.clearLayers();
+ const rows=$('aisTargetRows');if(rows)rows.replaceChildren();
  const now=Date.now();let count=0;
  for(const [id,t] of aisTargets){
   if(now-t.updated>AIS_HISTORY_MS){aisTargets.delete(id);continue}
-  const rotation=Number.isFinite(Number(t.cog))?Number(t.cog):0;
-  const icon=L.divIcon({className:'',html:'<div style="width:20px;height:24px;transform:rotate('+rotation+'deg);transform-origin:50% 50%;color:#00e5ff;text-shadow:0 0 3px #001"><svg width="20" height="24" viewBox="0 0 20 24"><path d="M10 1 L19 23 L10 18 L1 23 Z" fill="currentColor" stroke="#06212e" stroke-width="1.5"/></svg></div>',iconSize:[20,24],iconAnchor:[10,12]});
-  const desc='MMSI '+id+'<br>Lat/Lon: '+t.lat.toFixed(5)+', '+t.lon.toFixed(5)+'<br>SOG: '+(t.sog??'—')+' kn · COG: '+(t.cog??'—')+'°<br>Atualizado há '+Math.floor((now-t.updated)/1000)+' s';
-  L.marker([t.lat,t.lon],{icon}).bindPopup(desc).addTo(aisLayer);count++;
+  if(!Number.isFinite(t.lat)||!Number.isFinite(t.lon))continue;
+  const point=[t.lat,t.lon],cog=t.cog===null||t.cog===undefined?NaN:Number(t.cog);
+  const sog=t.sog===null||t.sog===undefined?NaN:Number(t.sog);
+  const hasVector=Number.isFinite(cog)&&cog>=0&&cog<360&&Number.isFinite(sog)&&sog>=0;
+  const desc='MMSI '+id+'<br>Lat/Lon: '+t.lat.toFixed(5)+', '+t.lon.toFixed(5)+'<br>SOG: '+(Number.isFinite(sog)?sog.toFixed(1):'—')+' kn · COG: '+(Number.isFinite(cog)?cog.toFixed(0):'—')+'°<br>Atualizado há '+Math.floor((now-t.updated)/1000)+' s';
+  L.circleMarker(point,{pane:'nautiNav',radius:7,color:'#fff',weight:2,fillColor:'#ff9500',fillOpacity:1}).bindPopup(desc).addTo(aisLayer);
+  if(hasVector&&sog>0)L.polyline([point,aisDestination(t.lat,t.lon,cog,sog)],{pane:'nautiNav',color:'#ff9500',weight:3,opacity:.95,interactive:false}).addTo(aisLayer);
+  if(rows){
+   const tr=document.createElement('tr');
+   for(const value of [String(id),t.lat.toFixed(5)+', '+t.lon.toFixed(5),Number.isFinite(cog)?cog.toFixed(0)+'°':'—',Number.isFinite(sog)?sog.toFixed(1):'—',Math.floor((now-t.updated)/1000)+'s',t.type||'—']){
+    const td=document.createElement('td');td.textContent=value;td.style.cssText='padding:5px 3px;border-bottom:1px solid #345;white-space:nowrap';tr.appendChild(td);
+   }
+   tr.style.cursor='pointer';tr.onclick=()=>{screen('mapScreen');map.setView(point,Math.max(map.getZoom(),13))};rows.appendChild(tr);
+  }
+  count++;
  }
  $('aisCount').textContent=count+' alvos na última hora · '+aisMessagesReceived+' mensagens / '+aisPositionsReceived+' posições recebidas';
 }
