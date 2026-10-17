@@ -6,6 +6,8 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.BroadcastReceiver;
 import android.net.Uri;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
@@ -33,6 +35,7 @@ import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
  private static final int PICK=42;
+ private final BroadcastReceiver aisReceiver=new BroadcastReceiver(){@Override public void onReceive(Context context,Intent intent){String fn=intent.getStringExtra("fn"),data=intent.getStringExtra("data");if(fn!=null&&data!=null&&(fn.equals("onAisStatus")||fn.equals("onAisStreamMessage")||fn.equals("onAisSentence")))callback(fn,data);}};
  private static final String CATALOG="https://www.marinha.mil.br/chm/dados-do-segnav/cartas-raster";
  private WebView web;
  private LocationManager locationManager;
@@ -50,6 +53,9 @@ public class MainActivity extends Activity {
  private volatile int aisTcpGeneration=0;
  @Override public void onCreate(Bundle state){
   super.onCreate(state);
+  IntentFilter filter=new IntentFilter("br.app.nautibr.AIS_EVENT");
+  if(android.os.Build.VERSION.SDK_INT>=33)registerReceiver(aisReceiver,filter,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(aisReceiver,filter);
+  if(android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},74);
   charts=new File(getFilesDir(),"charts");charts.mkdirs();
   web=new WebView(this);setContentView(web);
   web.getSettings().setJavaScriptEnabled(true);web.getSettings().setDomStorageEnabled(true);
@@ -118,109 +124,26 @@ public class MainActivity extends Activity {
   WebSocket socket=aisWebSocket;aisWebSocket=null;
   if(socket!=null)socket.close(1000,"Disconnected");
  }
- @Override protected void onDestroy(){if(locationManager!=null&&ownLocationListener!=null)locationManager.removeUpdates(ownLocationListener);stopAisConnection();stopAisStream();aisHttp.dispatcher().executorService().shutdown();super.onDestroy();}
+ @Override protected void onDestroy(){unregisterReceiver(aisReceiver);if(locationManager!=null&&ownLocationListener!=null)locationManager.removeUpdates(ownLocationListener);super.onDestroy();}
  void callback(String fn,String value){runOnUiThread(()->web.evaluateJavascript(fn+"("+JSONObject.quote(value)+")",null));}
  void status(String s){callback("onStatus",s);}
  public class Bridge{
-  @JavascriptInterface public void stopAISStream(){stopAisStream();}
+  @JavascriptInterface public void stopAISStream(){startService(new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STOP));}
   @JavascriptInterface public void connectAISStream(String key,double lat,double lon,double radius){
-   if(key==null||key.trim().isEmpty()||key.length()>512||!Double.isFinite(lat)||Math.abs(lat)>90||!Double.isFinite(lon)||Math.abs(lon)>180||!Double.isFinite(radius)||radius<1||radius>300){
-    callback("onAisStatus","AISStream: parâmetros inválidos");return;
-   }
-   stopAisStream();
-   final int generation=aisGeneration;
-   openAisStream(key.trim(),lat,lon,radius,generation,0);
+   if(key==null||key.trim().isEmpty()||key.length()>512||!Double.isFinite(lat)||Math.abs(lat)>90||!Double.isFinite(lon)||Math.abs(lon)>180||!Double.isFinite(radius)||radius<1||radius>300){callback("onAisStatus","AISStream: parâmetros inválidos");return;}
+   Intent i=new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STREAM);
+   i.putExtra("key",key.trim()).putExtra("lat",lat).putExtra("lon",lon).putExtra("radius",radius);
+   try{startForegroundService(i);}catch(Exception e){callback("onAisStatus","AISStream: "+e.getMessage());}
   }
-  void openAisStream(String key,double lat,double lon,double radius,int generation,int attempt){
-   if(generation!=aisGeneration)return;
-   final double dLat=radius/111.32,dLon=radius/(111.32*Math.max(.01,Math.cos(Math.toRadians(lat))));
-   final String apiKey=key;
-   try{
-    JSONArray southWest=new JSONArray().put(Math.max(-90,lat-dLat)).put(Math.max(-180,lon-dLon));
-    JSONArray northEast=new JSONArray().put(Math.min(90,lat+dLat)).put(Math.min(180,lon+dLon));
-    JSONArray box=new JSONArray().put(southWest).put(northEast);
-    JSONObject subscription=new JSONObject()
-     .put("APIKey",apiKey)
-     .put("BoundingBoxes",new JSONArray().put(box))
-     .put("FilterMessageTypes",new JSONArray().put("PositionReport").put("StandardClassBPositionReport").put("ExtendedClassBPositionReport"));
-    Request request=new Request.Builder().url("wss://stream.aisstream.io/v0/stream").build();
-    callback("onAisStatus","AISStream: conectando por WebSocket nativo");
-    aisWebSocket=aisHttp.newWebSocket(request,new WebSocketListener(){
-     private boolean opened=false;
-     @Override public void onOpen(WebSocket socket,Response response){
-      if(generation!=aisGeneration){socket.close(1000,"Superseded");return;}
-      opened=true;
-      callback("onAisStatus","AISStream: conexão WSS estabelecida (HTTP "+response.code()+")");
-      if(socket.send(subscription.toString()))callback("onAisStatus","AISStream: assinatura enviada; aguardando resposta");
-      else callback("onAisStatus","AISStream: falha ao enviar assinatura");
-     }
-     @Override public void onMessage(WebSocket socket,String message){
-      if(generation==aisGeneration && message.length()<1_000_000)callback("onAisStreamMessage",message);
-     }
-     @Override public void onMessage(WebSocket socket,ByteString bytes){
-      if(generation==aisGeneration && bytes.size()<1_000_000)callback("onAisStreamMessage",bytes.utf8());
-     }
-     @Override public void onClosing(WebSocket socket,int code,String reason){
-      if(generation==aisGeneration)callback("onAisStatus","AISStream: servidor encerrando ("+code+"): "+reason);
-      socket.close(1000,null);
-     }
-     @Override public void onClosed(WebSocket socket,int code,String reason){
-      if(generation==aisGeneration){aisWebSocket=null;callback("onAisStatus","AISStream: encerrado ("+code+"): "+reason);if(code!=1000&&code!=1008&&code!=4001)scheduleAisReconnect(key,lat,lon,radius,generation,opened?0:attempt+1);}
-     }
-     @Override public void onFailure(WebSocket socket,Throwable error,Response response){
-      if(generation==aisGeneration){
-       aisWebSocket=null;
-       String reason=error.getClass().getSimpleName()+": "+error.getMessage();
-       callback("onAisStatus","AISStream: falha WSS"+(response==null?"":" HTTP "+response.code())+" — "+reason);
-       if(response==null||response.code()>=500||response.code()==429)scheduleAisReconnect(key,lat,lon,radius,generation,opened?0:attempt+1);
-      }
-     }
-    });
-   }catch(Exception error){callback("onAisStatus","AISStream: "+error.getMessage());scheduleAisReconnect(key,lat,lon,radius,generation,attempt+1);}
-  }
-  synchronized void scheduleAisReconnect(String key,double lat,double lon,double radius,int generation,int attempt){
-   if(generation!=aisGeneration)return;
-   if(aisReconnectTask!=null)aisReconnectHandler.removeCallbacks(aisReconnectTask);
-   long delay=Math.min(60000L,2000L*(1L<<Math.min(attempt,5)));
-   delay+=new java.util.Random().nextInt(1000);
-   callback("onAisStatus","AISStream: reconexão em "+(delay/1000)+" s (tentativa "+(attempt+1)+")");
-   aisReconnectTask=()->{if(generation==aisGeneration)openAisStream(key,lat,lon,radius,generation,attempt);};
-   aisReconnectHandler.postDelayed(aisReconnectTask,delay);
-  }
-  @JavascriptInterface public void stopAIS(){stopAisConnection();}
+  @JavascriptInterface public void stopAIS(){startService(new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STOP));}
   @JavascriptInterface public void connectAIS(String host,int port){
-   stopAisConnection();
-   if(host==null||host.length()>255||!host.matches("[a-zA-Z0-9.:-]+")||port<1||port>65535){callback("onAisStatus","Endereço ou porta inválidos");return;}
-   aisRunning=true;
-   final int generation=aisTcpGeneration;
-   aisThread=new Thread(()->{
-    int attempt=0;
-    while(aisRunning&&generation==aisTcpGeneration){
-    try{
-     java.net.Socket socket=new java.net.Socket();
-     aisSocket=socket;
-     socket.connect(new java.net.InetSocketAddress(host,port),8000);
-     socket.setSoTimeout(30000);
-     attempt=0;
-     callback("onAisStatus","Receptor AIS conectado: "+host+":"+port);
-     try(BufferedReader br=new BufferedReader(new InputStreamReader(socket.getInputStream(),java.nio.charset.StandardCharsets.US_ASCII))){
-      String line;
-      while(aisRunning&&(line=br.readLine())!=null){
-       if(line.length()>2048)continue;
-       if(line.startsWith("!AIVDM,")||line.startsWith("!AIVDO,")||line.startsWith("!BSVDM,"))
-        callback("onAisSentence",line);
-      }
-     }
-    }catch(Exception e){if(aisRunning)callback("onAisStatus","AIS TCP: "+e.getMessage());}
-    finally{try{if(aisSocket!=null)aisSocket.close();}catch(Exception ignored){}aisSocket=null;}
-    if(!aisRunning||generation!=aisTcpGeneration)break;
-    long delay=Math.min(60000L,2000L*(1L<<Math.min(attempt++,5)))+new java.util.Random().nextInt(1000);
-    callback("onAisStatus","AIS TCP: reconexão em "+(delay/1000)+" s");
-    try{Thread.sleep(delay);}catch(InterruptedException e){break;}
-    }
-    if(generation==aisTcpGeneration)aisRunning=false;
-   },"ais-tcp");
-   aisThread.start();
+   if(host==null||host.length()>255||!host.matches("[a-zA-Z0-9.:-]+")||port<1||port>65535){callback("onAisStatus","AIS TCP: endereço inválido");return;}
+   Intent i=new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_TCP);
+   i.putExtra("host",host).putExtra("port",port);
+   try{startForegroundService(i);}catch(Exception e){callback("onAisStatus","AIS TCP: "+e.getMessage());}
+  }
+  @JavascriptInterface public String aisCachedMessages(){
+   return getSharedPreferences("ais_background",MODE_PRIVATE).getString("recent","[]");
   }
   @JavascriptInterface public void pollAIS(String url){
    if(url==null||url.length()>2048||!url.startsWith("https://")){callback("onAisStatus","Use uma URL HTTPS de dados AIS");return;}
