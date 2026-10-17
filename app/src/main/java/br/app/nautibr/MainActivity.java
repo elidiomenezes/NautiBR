@@ -45,6 +45,9 @@ public class MainActivity extends Activity {
  private final OkHttpClient aisHttp=new OkHttpClient.Builder().pingInterval(25,TimeUnit.SECONDS).build();
  private volatile WebSocket aisWebSocket;
  private volatile int aisGeneration=0;
+ private final android.os.Handler aisReconnectHandler=new android.os.Handler(android.os.Looper.getMainLooper());
+ private Runnable aisReconnectTask;
+ private volatile int aisTcpGeneration=0;
  @Override public void onCreate(Bundle state){
   super.onCreate(state);
   charts=new File(getFilesDir(),"charts");charts.mkdirs();
@@ -102,11 +105,15 @@ public class MainActivity extends Activity {
   }catch(SecurityException ignored){}
  }
  synchronized void stopAisConnection(){
+  aisTcpGeneration++;
+  if(aisThread!=null)aisThread.interrupt();
   aisRunning=false;
   try{if(aisSocket!=null)aisSocket.close();}catch(Exception ignored){}
   aisSocket=null;
  }
  synchronized void stopAisStream(){
+  if(aisReconnectTask!=null)aisReconnectHandler.removeCallbacks(aisReconnectTask);
+  aisReconnectTask=null;
   aisGeneration++;
   WebSocket socket=aisWebSocket;aisWebSocket=null;
   if(socket!=null)socket.close(1000,"Disconnected");
@@ -122,8 +129,12 @@ public class MainActivity extends Activity {
    }
    stopAisStream();
    final int generation=aisGeneration;
+   openAisStream(key.trim(),lat,lon,radius,generation,0);
+  }
+  void openAisStream(String key,double lat,double lon,double radius,int generation,int attempt){
+   if(generation!=aisGeneration)return;
    final double dLat=radius/111.32,dLon=radius/(111.32*Math.max(.01,Math.cos(Math.toRadians(lat))));
-   final String apiKey=key.trim();
+   final String apiKey=key;
    try{
     JSONArray southWest=new JSONArray().put(Math.max(-90,lat-dLat)).put(Math.max(-180,lon-dLon));
     JSONArray northEast=new JSONArray().put(Math.min(90,lat+dLat)).put(Math.min(180,lon+dLon));
@@ -135,8 +146,10 @@ public class MainActivity extends Activity {
     Request request=new Request.Builder().url("wss://stream.aisstream.io/v0/stream").build();
     callback("onAisStatus","AISStream: conectando por WebSocket nativo");
     aisWebSocket=aisHttp.newWebSocket(request,new WebSocketListener(){
+     private boolean opened=false;
      @Override public void onOpen(WebSocket socket,Response response){
       if(generation!=aisGeneration){socket.close(1000,"Superseded");return;}
+      opened=true;
       callback("onAisStatus","AISStream: conexão WSS estabelecida (HTTP "+response.code()+")");
       if(socket.send(subscription.toString()))callback("onAisStatus","AISStream: assinatura enviada; aguardando resposta");
       else callback("onAisStatus","AISStream: falha ao enviar assinatura");
@@ -152,29 +165,43 @@ public class MainActivity extends Activity {
       socket.close(1000,null);
      }
      @Override public void onClosed(WebSocket socket,int code,String reason){
-      if(generation==aisGeneration){aisWebSocket=null;callback("onAisStatus","AISStream: encerrado ("+code+"): "+reason);}
+      if(generation==aisGeneration){aisWebSocket=null;callback("onAisStatus","AISStream: encerrado ("+code+"): "+reason);if(code!=1000&&code!=1008&&code!=4001)scheduleAisReconnect(key,lat,lon,radius,generation,opened?0:attempt+1);}
      }
      @Override public void onFailure(WebSocket socket,Throwable error,Response response){
       if(generation==aisGeneration){
        aisWebSocket=null;
        String reason=error.getClass().getSimpleName()+": "+error.getMessage();
        callback("onAisStatus","AISStream: falha WSS"+(response==null?"":" HTTP "+response.code())+" — "+reason);
+       if(response==null||response.code()>=500||response.code()==429)scheduleAisReconnect(key,lat,lon,radius,generation,opened?0:attempt+1);
       }
      }
     });
-   }catch(Exception error){callback("onAisStatus","AISStream: "+error.getMessage());}
+   }catch(Exception error){callback("onAisStatus","AISStream: "+error.getMessage());scheduleAisReconnect(key,lat,lon,radius,generation,attempt+1);}
+  }
+  synchronized void scheduleAisReconnect(String key,double lat,double lon,double radius,int generation,int attempt){
+   if(generation!=aisGeneration)return;
+   if(aisReconnectTask!=null)aisReconnectHandler.removeCallbacks(aisReconnectTask);
+   long delay=Math.min(60000L,2000L*(1L<<Math.min(attempt,5)));
+   delay+=new java.util.Random().nextInt(1000);
+   callback("onAisStatus","AISStream: reconexão em "+(delay/1000)+" s (tentativa "+(attempt+1)+")");
+   aisReconnectTask=()->{if(generation==aisGeneration)openAisStream(key,lat,lon,radius,generation,attempt);};
+   aisReconnectHandler.postDelayed(aisReconnectTask,delay);
   }
   @JavascriptInterface public void stopAIS(){stopAisConnection();}
   @JavascriptInterface public void connectAIS(String host,int port){
    stopAisConnection();
    if(host==null||host.length()>255||!host.matches("[a-zA-Z0-9.:-]+")||port<1||port>65535){callback("onAisStatus","Endereço ou porta inválidos");return;}
    aisRunning=true;
+   final int generation=aisTcpGeneration;
    aisThread=new Thread(()->{
+    int attempt=0;
+    while(aisRunning&&generation==aisTcpGeneration){
     try{
      java.net.Socket socket=new java.net.Socket();
      aisSocket=socket;
      socket.connect(new java.net.InetSocketAddress(host,port),8000);
      socket.setSoTimeout(30000);
+     attempt=0;
      callback("onAisStatus","Receptor AIS conectado: "+host+":"+port);
      try(BufferedReader br=new BufferedReader(new InputStreamReader(socket.getInputStream(),java.nio.charset.StandardCharsets.US_ASCII))){
       String line;
@@ -185,7 +212,13 @@ public class MainActivity extends Activity {
       }
      }
     }catch(Exception e){if(aisRunning)callback("onAisStatus","AIS TCP: "+e.getMessage());}
-    finally{if(aisRunning)callback("onAisStatus","Conexão AIS encerrada");aisRunning=false;}
+    finally{try{if(aisSocket!=null)aisSocket.close();}catch(Exception ignored){}aisSocket=null;}
+    if(!aisRunning||generation!=aisTcpGeneration)break;
+    long delay=Math.min(60000L,2000L*(1L<<Math.min(attempt++,5)))+new java.util.Random().nextInt(1000);
+    callback("onAisStatus","AIS TCP: reconexão em "+(delay/1000)+" s");
+    try{Thread.sleep(delay);}catch(InterruptedException e){break;}
+    }
+    if(generation==aisTcpGeneration)aisRunning=false;
    },"ais-tcp");
    aisThread.start();
   }
