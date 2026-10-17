@@ -14,6 +14,7 @@ import java.io.*;
 import java.util.zip.*;
 import java.util.*;
 import android.graphics.BitmapFactory;
+import android.graphics.Bitmap;
 
 public class MainActivity extends Activity {
  private static final int PICK=42;
@@ -54,7 +55,7 @@ public class MainActivity extends Activity {
     JSONObject o=new JSONObject();o.put("id",file.getName());o.put("name",getPreferences(0).getString(file.getName(),file.getName()));a.put(o);
    }callback("onCharts",a.toString());
   }catch(Exception e){status(e.toString());}}).start();}
-  @JavascriptInterface public void importGeo(){
+  @JavascriptInterface public String kapFiles(){\n   JSONArray a=new JSONArray();File[] files=charts.listFiles();\n   if(files!=null)for(File file:files)if(file.getName().endsWith(".kap.json"))try{JSONObject o=new JSONObject(new String(java.nio.file.Files.readAllBytes(file.toPath()),"UTF-8"));a.put(o);}catch(Exception ignored){}\n   return a.toString();\n  }\n  @JavascriptInterface public void importGeo(){
    runOnUiThread(()->{
     Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
     i.setType("*/*");i.addCategory(Intent.CATEGORY_OPENABLE);
@@ -100,17 +101,92 @@ public class MainActivity extends Activity {
        if(++entries>100)throw new IOException("ZIP com entradas demais");
        if(entry.isDirectory())continue;
        String leaf=new File(entry.getName().replace('\\','/')).getName();
-       if(req==43 && isGeo(leaf)){saveGeo(zip,name+" / "+leaf);count++;}
+       if(req==43 && isGeo(leaf)){saveGeo(zip,name+" / "+leaf);count++;}\n       else if(isKap(leaf)){saveKap(zip,name+" / "+leaf);count++;}
        else if(req==PICK && isImage(leaf)){saveImage(zip,name+" / "+leaf);count++;}
       }
      }
-    }else if(req==43 && isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
+    }else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}\n    else if(req==43 && isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
     else if(req==PICK && isImage(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveImage(in,name);count++;}}
     else errors.add(name+": formato não suportado");
    }catch(Exception e){errors.add(e.getMessage());}
    status(count+" imagem(ns) importada(s). "+String.join("; ",errors));
    new Bridge().listCharts();
   }).start();
+ }
+ boolean isKap(String name){return name.toLowerCase(Locale.ROOT).endsWith(".kap");}
+ void saveKap(InputStream in,String name)throws Exception{
+  BufferedInputStream input=new BufferedInputStream(in,32768);
+  ByteArrayOutputStream header=new ByteArrayOutputStream();
+  int c,prev=-1;
+  while((c=input.read())!=-1){
+   if(header.size()>1_000_000)throw new IOException("Cabeçalho KAP muito grande");
+   if(prev==26&&c==0)break;
+   header.write(c);prev=c;
+  }
+  if(c<0)throw new IOException("KAP sem separador");
+  String text=header.toString("ISO-8859-1").replace("\\r","");
+  String[] lines=text.split("\\n");
+  int width=0,height=0;int[] palette=new int[128];Arrays.fill(palette,0xffffffff);
+  ArrayList<double[]> refs=new ArrayList<>();String kind="";
+  for(String line:lines){
+   if(line.startsWith("BSB/")){kind="BSB";}else if(line.startsWith("REF/")){kind="REF";}
+   else if(line.startsWith("RGB/")){kind="RGB";}
+   if(line.startsWith("BSB/")||line.startsWith("RA=")){
+    java.util.regex.Matcher m=java.util.regex.Pattern.compile("RA=(\\\\d+),(\\\\d+)").matcher(line);
+    if(m.find()){width=Integer.parseInt(m.group(1));height=Integer.parseInt(m.group(2));}
+   }
+   if(line.startsWith("RGB/")){String[] a=line.substring(4).split(",");if(a.length>=4)try{
+    int index=Integer.parseInt(a[0].trim());if(index>=0&&index<128)palette[index]=0xff000000|(Integer.parseInt(a[1].trim())<<16)|(Integer.parseInt(a[2].trim())<<8)|Integer.parseInt(a[3].trim());
+   }catch(Exception ignored){}}
+   if(line.startsWith("REF/")){String[] a=line.substring(4).split(",");if(a.length>=5)try{refs.add(new double[]{Double.parseDouble(a[1]),Double.parseDouble(a[2]),Double.parseDouble(a[3]),Double.parseDouble(a[4])});}catch(Exception ignored){}}
+  }
+  if(width<1||height<1||((long)width*height)>24_000_000L)throw new IOException("Dimensões KAP não suportadas: "+width+"x"+height);
+  int depth=input.read();if(depth<1||depth>7)throw new IOException("Profundidade KAP inválida: "+depth);
+  Bitmap bmp=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888);
+  int[] row=new int[width];
+  for(int y=0;y<height;y++){
+   int line=0,b;
+   do{b=input.read();if(b<0)throw new EOFException("KAP truncado");line=(line<<7)|(b&127);}while((b&128)!=0);
+   int x=0;
+   while(true){
+    b=input.read();if(b<0)throw new EOFException("KAP truncado na linha "+y);
+    if(b==0)break;
+    int index=b>>(7-depth),length=b&((1<<(7-depth))-1);
+    while((b&128)!=0){b=input.read();if(b<0)throw new EOFException();length=(length<<7)|(b&127);}
+    length++;
+    if(x+length>width)throw new IOException("KAP RLE excede largura");
+    Arrays.fill(row,x,x+length,palette[Math.min(index,127)]);x+=length;
+   }
+   if(x!=width)throw new IOException("Linha KAP incompleta: "+y+" ("+x+"/"+width+")");
+   bmp.setPixels(row,0,width,0,y,width,1);
+  }
+  if(refs.size()<2)throw new IOException("KAP sem pontos REF suficientes");
+  // Estimate geographic edges from REF controls; valid for north-up Mercator charts.
+  double minX=Double.POSITIVE_INFINITY,maxX=Double.NEGATIVE_INFINITY,minY=Double.POSITIVE_INFINITY,maxY=Double.NEGATIVE_INFINITY;
+  for(double[] r:refs){minX=Math.min(minX,r[0]);maxX=Math.max(maxX,r[0]);minY=Math.min(minY,r[1]);maxY=Math.max(maxY,r[1]);}
+  if(maxX==minX||maxY==minY)throw new IOException("REF degenerado");
+  double west=0,east=0,north=0,south=0;int n=refs.size();
+  for(double[] r:refs){
+   double merc=Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));
+   west+=r[3]-(r[0]/(maxX-minX))*(r[3]-refs.get(0)[3]); // replaced below by linear regression
+  }
+  double mx=0,my=0,mlon=0,mm=0,xx=0,yy=0,xlon=0,ym=0;
+  for(double[] r:refs){double latm=Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));mx+=r[0];my+=r[1];mlon+=r[3];mm+=latm;}
+  mx/=n;my/=n;mlon/=n;mm/=n;
+  for(double[] r:refs){double latm=Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));xx+=(r[0]-mx)*(r[0]-mx);yy+=(r[1]-my)*(r[1]-my);xlon+=(r[0]-mx)*(r[3]-mlon);ym+=(r[1]-my)*(latm-mm);}
+  if(xx==0||yy==0)throw new IOException("REF sem escala");
+  double lonScale=xlon/xx,mercScale=ym/yy;
+  double lonLeft=mlon+(0-mx)*lonScale,lonRight=mlon+(width-mx)*lonScale;
+  double mercTop=mm+(0-my)*mercScale,mercBottom=mm+(height-my)*mercScale;
+  double latTop=Math.toDegrees(2*Math.atan(Math.exp(mercTop))-Math.PI/2);
+  double latBottom=Math.toDegrees(2*Math.atan(Math.exp(mercBottom))-Math.PI/2);
+  if(!Double.isFinite(latTop)||!Double.isFinite(latBottom)||Math.abs(latTop)>85||Math.abs(latBottom)>85)throw new IOException("Georreferência inválida");
+  String id=UUID.randomUUID().toString().replace("-","");
+  File png=new File(charts,id+".png");
+  try(OutputStream out=new FileOutputStream(png)){if(!bmp.compress(Bitmap.CompressFormat.PNG,95,out))throw new IOException("Falha PNG");}finally{bmp.recycle();}
+  JSONObject meta=new JSONObject();meta.put("id",id+".png");meta.put("name",name);meta.put("bounds",new JSONArray().put(new JSONArray().put(Math.min(latTop,latBottom)).put(Math.min(lonLeft,lonRight))).put(new JSONArray().put(Math.max(latTop,latBottom)).put(Math.max(lonLeft,lonRight))));
+  meta.put("approximate",true);
+  try(OutputStream out=new FileOutputStream(new File(charts,id+".kap.json"))){out.write(meta.toString().getBytes("UTF-8"));}
  }
  boolean isGeo(String name){return name.toLowerCase(Locale.ROOT).matches(".*\\.(geojson|json)");}
  void saveGeo(InputStream in,String name)throws Exception{
