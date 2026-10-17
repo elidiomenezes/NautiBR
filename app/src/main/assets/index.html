@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR · build 46</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 47</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Mapa de Santos</div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -23,8 +23,10 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <h3>AIS — alvos em tempo real</h3>
 <p>Fonte TCP: receptor AIS com saída NMEA 0183 por Wi-Fi/rede local. Não é necessário acesso à internet.</p>
 <div style="display:flex;gap:6px;flex-wrap:wrap"><input id="aisHost" placeholder="IP do receptor (ex.: 192.168.1.20)" style="flex:2;min-width:180px"><input id="aisPort" type="number" value="10110" style="width:85px"><button onclick="startAisTcp()">Conectar TCP</button><button onclick="stopAis()">Desconectar</button></div>
-<p>Fonte internet: URL HTTPS de um serviço AIS autorizado que retorne JSON com posições ou linhas NMEA. Alguns provedores exigem assinatura e chave de API.</p>
-<div style="display:flex;gap:6px;flex-wrap:wrap"><input id="aisUrl" placeholder="https://servidor/exemplo/ais.json" style="flex:1;min-width:220px"><button onclick="startAisInternet()">Atualizar internet</button><button onclick="stopAisInternet()">Parar atualização</button></div>
+<p>Fonte internet: AISStream via WebSocket seguro. A chave é inserida no aplicativo e não está incluída no APK.</p>
+<div style="display:flex;gap:6px;flex-wrap:wrap"><input id="aisUrl" value="wss://stream.aisstream.io/v0/stream" readonly style="flex:1;min-width:220px"><input id="aisKey" type="password" autocomplete="off" placeholder="AISStream API Key" style="flex:1;min-width:180px"></div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><label>Latitude <input id="aisLat" type="number" step="any" value="-22.970209043630273" style="width:135px"></label><label>Longitude <input id="aisLon" type="number" step="any" value="-43.406313076990074" style="width:135px"></label><label>Raio (km) <input id="aisRadius" type="number" min="1" max="300" value="60" style="width:70px"></label></div>
+<div style="display:flex;gap:6px;margin-top:6px"><button onclick="startAisInternet()">Conectar AISStream</button><button onclick="stopAisInternet()">Desconectar internet</button><button onclick="forgetAisKey()">Apagar chave</button></div>
 <p id="aisStatus">AIS desconectado</p>
 <div style="display:flex;gap:8px"><button onclick="screen('mapScreen')">Ver alvos no mapa</button><button onclick="clearAis()">Limpar alvos</button></div>
 <p id="aisCount">0 alvos</p>
@@ -120,15 +122,46 @@ function startAisTcp(){
  Native.connectAIS(host,port);aisMessage('Conectando ao receptor...');
 }
 function stopAis(){Native.stopAIS();aisMessage('AIS TCP desconectado')}
+let aisSocketWeb=null;
+function forgetAisKey(){stopAisInternet();localStorage.removeItem('aisStreamKey');$('aisKey').value='';aisMessage('Chave AISStream apagada')}
 function startAisInternet(){
- const url=$('aisUrl').value.trim();
- if(!url.startsWith('https://')){aisMessage('URL HTTPS obrigatória');return}
- stopAisInternet();localStorage.setItem('aisUrl',url);
- Native.pollAIS(url);
- aisPollTimer=setInterval(()=>Native.pollAIS(url),30000);
- aisMessage('Consultando AIS HTTPS a cada 30 segundos');
+ const key=$('aisKey').value.trim();
+ const lat=Number($('aisLat').value),lon=Number($('aisLon').value),radius=Number($('aisRadius').value);
+ if(!key){aisMessage('Informe a chave AISStream');return}
+ if(!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lon)||Math.abs(lon)>180||!(radius>=1&&radius<=300)){aisMessage('Latitude, longitude ou raio inválidos');return}
+ stopAisInternet();
+ localStorage.setItem('aisStreamKey',key);
+ localStorage.setItem('aisStreamArea',JSON.stringify({lat,lon,radius}));
+ const deltaLat=radius/111.32,deltaLon=radius/(111.32*Math.max(.01,Math.cos(lat*Math.PI/180)));
+ const box=[[Math.max(-90,lat-deltaLat),Math.max(-180,lon-deltaLon)],[Math.min(90,lat+deltaLat),Math.min(180,lon+deltaLon)]];
+ const ws=new WebSocket('wss://stream.aisstream.io/v0/stream');
+ aisSocketWeb=ws;
+ ws.onopen=()=>{
+  if(aisSocketWeb!==ws)return;
+  ws.send(JSON.stringify({APIKey:key,BoundingBoxes:[box],FilterMessageTypes:['PositionReport','StandardClassBPositionReport','ExtendedClassBPositionReport']}));
+  aisMessage('AISStream conectado; aguardando posições');
+ };
+ ws.onmessage=e=>{
+  if(aisSocketWeb!==ws)return;
+  try{
+   const d=JSON.parse(e.data),p=d.Message?.PositionReport||d.Message?.StandardClassBPositionReport||d.Message?.ExtendedClassBPositionReport;
+   if(!p)return;
+   const mmsi=Number(d.MetaData?.MMSI??p.UserID);
+   const latitude=Number(p.Latitude),longitude=Number(p.Longitude);
+   if(!Number.isInteger(mmsi)||mmsi<=0||!Number.isFinite(latitude)||!Number.isFinite(longitude)||Math.abs(latitude)>90||Math.abs(longitude)>180)return;
+   const sog=Number(p.Sog),cog=Number(p.Cog),heading=Number(p.TrueHeading);
+   aisTargets.set(mmsi,{mmsi,lat:latitude,lon:longitude,sog:sog>=0&&sog<102.3?sog:null,cog:cog>=0&&cog<360?cog:null,heading:heading>=0&&heading<360?heading:null,updated:Date.now(),type:'AISStream'});
+   renderAis();
+  }catch(err){aisMessage('AISStream: resposta inválida')}
+ };
+ ws.onerror=()=>{if(aisSocketWeb===ws)aisMessage('Falha de conexão AISStream; confira rede e chave')};
+ ws.onclose=e=>{if(aisSocketWeb===ws){aisSocketWeb=null;aisMessage('AISStream desconectado (código '+e.code+')')}};
+ aisMessage('Conectando ao AISStream...');
 }
-function stopAisInternet(){if(aisPollTimer)clearInterval(aisPollTimer);aisPollTimer=null}
+function stopAisInternet(){
+ if(aisPollTimer)clearInterval(aisPollTimer);aisPollTimer=null;
+ if(aisSocketWeb){const ws=aisSocketWeb;aisSocketWeb=null;ws.close();}
+}
 function onAisStatus(s){aisMessage(s)}
 function clearAis(){aisTargets.clear();aisFragments.clear();renderAis()}
 function aisBits(payload){
@@ -211,6 +244,10 @@ function renderAis(){
 setInterval(()=>{if(aisTargets.size)renderAis()},30000);
 if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:true,fadeAnimation:true,markerZoomAnimation:true,preferCanvas:true}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map)}
 else status('Falha ao carregar Leaflet incluído no APK');
-try{$("aisUrl").value=localStorage.getItem("aisUrl")||""}catch(e){}
+try{
+ $('aisKey').value=localStorage.getItem('aisStreamKey')||'';
+ const area=JSON.parse(localStorage.getItem('aisStreamArea')||'null');
+ if(area){$('aisLat').value=area.lat;$('aisLon').value=area.lon;$('aisRadius').value=area.radius}
+}catch(e){}
 refresh();
 </script></body></html>
