@@ -1,7 +1,7 @@
 <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-<title>NautiBR</title><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
+<title>NautiBR</title><link rel="stylesheet" href="/vendor/leaflet.css">
+<script src="/vendor/leaflet.js"></script>
+<script src="/vendor/geotiff.js"></script>
 <style>*{box-sizing:border-box}body{margin:0;background:#0d1824;color:#e7f0f7;font:15px system-ui,sans-serif}
 header{padding:12px 16px;background:#162b3b;display:flex;justify-content:space-between}nav{display:flex;gap:6px;padding:10px;background:#132432}
 button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b63;color:#fff;font-size:13px}nav button{flex:1}
@@ -18,7 +18,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <button onclick="Native.importCharts()">Importar KAP, GeoTIFF ou ZIP</button>
 <button onclick="Native.importGeo()">Importar GeoJSON ou ZIP</button>
 <h4>Cartas KAP</h4><div id="kapfiles"></div><h4>GeoTIFF</h4><div id="tifffiles"></div><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
-<p class="warning">GeoTIFF: somente projeções EPSG:4326 e EPSG:3857, sem rotação, nesta versão. Formatos incompatíveis são rejeitados. A biblioteca de decodificação e o mapa-base requerem internet.</p></section>
+<p class="warning">GeoTIFF: somente projeções EPSG:4326 e EPSG:3857, sem rotação, nesta versão. Formatos incompatíveis são rejeitados. O decodificador e as cartas importadas funcionam offline. O mapa-base OpenStreetMap exige internet; sem ela, as cartas continuam visíveis sobre o fundo do mapa.</p></section>
 <div id="status"></div>
 <script>
 const $=id=>document.getElementById(id);let map,geoLayer,kapLayer,tiffLayer;
@@ -54,7 +54,7 @@ function openKap(c){
 }
 async function openTiff(c){
  try{
-  if(!window.GeoTIFF)throw Error('Biblioteca GeoTIFF indisponível; verifique a conexão');
+  if(!window.GeoTIFF)throw Error('Biblioteca GeoTIFF indisponível no APK');
   status('Decodificando GeoTIFF...');
   const url='https://nautibr.local/chart?id='+encodeURIComponent(c.id);
   const res=await fetch(url);if(!res.ok)throw Error('Não foi possível ler o TIFF');
@@ -86,6 +86,6 @@ async function openTiff(c){
  }catch(e){status('GeoTIFF rejeitado: '+e.message)}
 }
 if(window.L){map=L.map('map',{zoomControl:false}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map)}
-else status('Leaflet indisponível; verifique a conexão');
+else status('Falha ao carregar Leaflet incluído no APK');
 refresh();
 </script></body></html>
