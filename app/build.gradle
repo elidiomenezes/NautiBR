@@ -1,5 +1,5 @@
 plugins { id 'com.android.application' }
 dependencies { implementation 'com.squareup.okhttp3:okhttp:4.12.0' }
 android { namespace 'br.app.nautibr'; compileSdk 35
- defaultConfig { applicationId 'br.app.nautibr'; minSdk 26; targetSdk 35; versionCode 86; versionName '0.86' }
+ defaultConfig { applicationId 'br.app.nautibr'; minSdk 26; targetSdk 35; versionCode 87; versionName '0.87' }
 }
