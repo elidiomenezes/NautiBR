@@ -153,7 +153,7 @@ public class MainActivity extends Activity {
    while(true){
     b=input.read();if(b<0)throw new EOFException("KAP truncado na linha "+y);
     if(b==0)break;
-    int index=b>>(7-depth),length=b&((1<<(7-depth))-1);
+    int index=(b&127)>>(7-depth),length=b&((1<<(7-depth))-1);
     while((b&128)!=0){b=input.read();if(b<0)throw new EOFException();length=(length<<7)|(b&127);}
     length++;
     if(x+length>width)throw new IOException("KAP RLE excede largura");
