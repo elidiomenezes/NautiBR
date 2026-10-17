@@ -34,6 +34,13 @@ public class MainActivity extends Activity {
     startActivity(new Intent(Intent.ACTION_VIEW,b.build()).addCategory(Intent.CATEGORY_BROWSABLE));
    });
   }
+  @JavascriptInterface public void openChart(String filename) {
+   if(filename==null || !filename.matches("[A-Za-z0-9_-]+\\.zip")) return;
+   runOnUiThread(()->{
+    Uri uri=Uri.parse("https://www.marinha.mil.br/chm/sites/www.marinha.mil.br.chm/files/raster/"+filename);
+    startActivity(new Intent(Intent.ACTION_VIEW,uri).addCategory(Intent.CATEGORY_BROWSABLE));
+   });
+  }
   @JavascriptInterface public void marine(double lat,double lon) {
    new Thread(()->{try{
     URL url=new URL("https://marine-api.open-meteo.com/v1/marine?latitude="+lat+"&longitude="+lon+"&current=wave_height,wave_direction,ocean_current_velocity,ocean_current_direction,sea_level_height_msl");
