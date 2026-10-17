@@ -8,8 +8,8 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR · build 44</strong><span>Cartas náuticas</span></header>
-<nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="Native.openNavy()">Site da Marinha ↗</button></nav>
+<body><header><strong>NautiBR · build 45</strong><span>Cartas náuticas</span></header>
+<nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Mapa de Santos</div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
 <p class="warning">Visualizador experimental. Não usar para navegação real.</p></section>
@@ -19,6 +19,17 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <button onclick="Native.importGeo()">Importar GeoJSON ou ZIP</button>
 <h4>Cartas KAP</h4><div id="kapfiles"></div><h4>GeoTIFF</h4><div id="tifffiles"></div><div id="diagnostic" style="display:none;border:1px solid #456579;padding:10px;margin-top:10px;border-radius:8px"><strong>Diagnóstico GeoTIFF</strong><textarea id="diagnosticText" readonly style="width:100%;height:220px;margin-top:8px;background:#09141d;color:#e7f0f7;font:12px monospace"></textarea><button onclick="copyDiagnostic()">Copiar diagnóstico</button></div><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
 <p class="warning">GeoTIFF: EPSG:4326, EPSG:3857, UTM WGS84, Mercator personalizada e Transversa de Mercator personalizada com parâmetros completos, sem rotação, nesta versão. Formatos incompatíveis são rejeitados. O decodificador e as cartas importadas funcionam offline. O mapa-base OpenStreetMap exige internet; sem ela, as cartas continuam visíveis sobre o fundo do mapa.</p></section>
+<section class="screen" id="aisScreen">
+<h3>AIS — alvos em tempo real</h3>
+<p>Fonte TCP: receptor AIS com saída NMEA 0183 por Wi-Fi/rede local. Não é necessário acesso à internet.</p>
+<div style="display:flex;gap:6px;flex-wrap:wrap"><input id="aisHost" placeholder="IP do receptor (ex.: 192.168.1.20)" style="flex:2;min-width:180px"><input id="aisPort" type="number" value="10110" style="width:85px"><button onclick="startAisTcp()">Conectar TCP</button><button onclick="stopAis()">Desconectar</button></div>
+<p>Fonte internet: URL HTTPS de um serviço AIS autorizado que retorne JSON com posições ou linhas NMEA. Alguns provedores exigem assinatura e chave de API.</p>
+<div style="display:flex;gap:6px;flex-wrap:wrap"><input id="aisUrl" placeholder="https://servidor/exemplo/ais.json" style="flex:1;min-width:220px"><button onclick="startAisInternet()">Atualizar internet</button><button onclick="stopAisInternet()">Parar atualização</button></div>
+<p id="aisStatus">AIS desconectado</p>
+<div style="display:flex;gap:8px"><button onclick="screen('mapScreen')">Ver alvos no mapa</button><button onclick="clearAis()">Limpar alvos</button></div>
+<p id="aisCount">0 alvos</p>
+<p class="warning">Posições AIS podem estar atrasadas, incorretas ou ausentes. Não utilizar para evitar colisões ou navegação operacional.</p>
+</section>
 <div id="status"></div><div id="decodeProgress" style="display:none;padding:10px 14px;background:#162b3b"><div id="decodeLabel">Preparando GeoTIFF...</div><progress id="decodeBar" max="100" value="0" style="width:100%;height:16px"></progress><button id="decodeCancel" onclick="cancelTiff()">Cancelar</button></div>
 <script>
 const $=id=>document.getElementById(id);let map,geoLayer,kapLayer,tiffLayer;
@@ -275,7 +286,107 @@ async function openTiff(c){
   worker.postMessage({type:'decode',buffer},[buffer]);
  }catch(e){status('GeoTIFF: '+e.message);progress.style.display='none';if(activeTiffWorker){activeTiffWorker.terminate();activeTiffWorker=null}}
 }
+
+// AIS: NMEA 0183 six-bit parser, fragment assembly and marker lifetime.
+const aisTargets=new Map(),aisFragments=new Map();
+let aisLayer=null,aisPollTimer=null;
+function aisMessage(text){$('aisStatus').textContent=text}
+function startAisTcp(){
+ const host=$('aisHost').value.trim(),port=Number($('aisPort').value);
+ Native.connectAIS(host,port);aisMessage('Conectando ao receptor...');
+}
+function stopAis(){Native.stopAIS();aisMessage('AIS TCP desconectado')}
+function startAisInternet(){
+ const url=$('aisUrl').value.trim();
+ if(!url.startsWith('https://')){aisMessage('URL HTTPS obrigatória');return}
+ stopAisInternet();localStorage.setItem('aisUrl',url);
+ Native.pollAIS(url);
+ aisPollTimer=setInterval(()=>Native.pollAIS(url),30000);
+ aisMessage('Consultando AIS HTTPS a cada 30 segundos');
+}
+function stopAisInternet(){if(aisPollTimer)clearInterval(aisPollTimer);aisPollTimer=null}
+function onAisStatus(s){aisMessage(s)}
+function clearAis(){aisTargets.clear();aisFragments.clear();renderAis()}
+function aisBits(payload){
+ let bits='';
+ for(const ch of payload){
+  let v=ch.charCodeAt(0)-48;if(v>40)v-=8;
+  if(v<0||v>63)return null;
+  bits+=v.toString(2).padStart(6,'0');
+ }
+ return bits;
+}
+function aisUnsigned(b,start,len){return parseInt(b.slice(start,start+len),2)}
+function aisSigned(b,start,len){
+ const n=aisUnsigned(b,start,len);return n>=2**(len-1)?n-2**len:n;
+}
+function aisDecode(payload,fill){
+ let b=aisBits(payload);if(!b)return;
+ if(fill>0)b=b.slice(0,-fill);
+ if(b.length<38)return;
+ const type=aisUnsigned(b,0,6),mmsi=aisUnsigned(b,8,30);
+ if(!mmsi)return;
+ let lon,lat,sog=null,cog=null,heading=null;
+ if([1,2,3].includes(type)&&b.length>=168){
+  sog=aisUnsigned(b,50,10)/10;lon=aisSigned(b,61,28)/600000;lat=aisSigned(b,89,27)/600000;
+  cog=aisUnsigned(b,116,12)/10;heading=aisUnsigned(b,128,9);
+ }else if([18,19].includes(type)&&b.length>=168){
+  sog=aisUnsigned(b,46,10)/10;lon=aisSigned(b,57,28)/600000;lat=aisSigned(b,85,27)/600000;
+  cog=aisUnsigned(b,112,12)/10;heading=aisUnsigned(b,124,9);
+ }else return;
+ if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return;
+ if(sog>=102.3)sog=null;if(cog>=360)cog=null;if(heading>=360)heading=null;
+ aisTargets.set(mmsi,{mmsi,lat,lon,sog,cog,heading,updated:Date.now(),type});
+ renderAis();
+}
+function onAisSentence(line){
+ const star=line.indexOf('*');if(star<0)return;
+ let checksum=0;for(let i=1;i<star;i++)checksum^=line.charCodeAt(i);
+ if(checksum!==parseInt(line.slice(star+1,star+3),16))return;
+ const parts=line.slice(0,star).split(',');
+ if(parts.length<7)return;
+ const total=Number(parts[1]),number=Number(parts[2]),seq=parts[3],channel=parts[4],payload=parts[5],fill=Number(parts[6]);
+ if(total===1){aisDecode(payload,fill);return}
+ if(!(total>=2&&total<=9&&number>=1&&number<=total))return;
+ const key=parts[0]+':'+channel+':'+(seq||'single');
+ let fragment=aisFragments.get(key);
+ if(!fragment||number===1||Date.now()-fragment.time>10000)fragment={parts:[],time:Date.now(),total};
+ fragment.parts[number-1]=payload;aisFragments.set(key,fragment);
+ if(fragment.parts.filter(Boolean).length===total){aisFragments.delete(key);aisDecode(fragment.parts.join(''),fill)}
+}
+function onAisInternet(raw){
+ try{
+  let value;
+  try{value=JSON.parse(raw)}catch(e){value=raw.split(/\r?\n/)}
+  if(!Array.isArray(value))value=Array.isArray(value.targets)?value.targets:Array.isArray(value.vessels)?value.vessels:Array.isArray(value.data)?value.data:[];
+  let count=0;
+  for(const item of value){
+   if(typeof item==='string'){onAisSentence(item.trim());count++;continue}
+   if(item&&typeof item.nmea==='string'){onAisSentence(item.nmea.trim());count++;continue}
+   const mmsi=Number(item.mmsi??item.MMSI),lat=Number(item.lat??item.latitude??item.LAT),lon=Number(item.lon??item.longitude??item.LON);
+   if(!Number.isInteger(mmsi)||mmsi<=0||!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)continue;
+   aisTargets.set(mmsi,{mmsi,lat,lon,sog:item.sog??item.SOG??null,cog:item.cog??item.COG??null,heading:item.heading??null,updated:Date.now(),type:'internet'});count++;
+  }
+  renderAis();aisMessage('AIS HTTPS: '+count+' registros recebidos');
+ }catch(e){aisMessage('Resposta AIS inválida: '+e.message)}
+}
+function renderAis(){
+ if(!map)return;
+ if(!aisLayer)aisLayer=L.layerGroup().addTo(map);
+ aisLayer.clearLayers();
+ const now=Date.now();let count=0;
+ for(const [id,t] of aisTargets){
+  if(now-t.updated>600000){aisTargets.delete(id);continue}
+  const rotation=Number.isFinite(Number(t.cog))?Number(t.cog):0;
+  const icon=L.divIcon({className:'',html:'<div style="width:20px;height:24px;transform:rotate('+rotation+'deg);transform-origin:50% 50%;color:#00e5ff;text-shadow:0 0 3px #001"><svg width="20" height="24" viewBox="0 0 20 24"><path d="M10 1 L19 23 L10 18 L1 23 Z" fill="currentColor" stroke="#06212e" stroke-width="1.5"/></svg></div>',iconSize:[20,24],iconAnchor:[10,12]});
+  const desc='MMSI '+id+'<br>Lat/Lon: '+t.lat.toFixed(5)+', '+t.lon.toFixed(5)+'<br>SOG: '+(t.sog??'—')+' kn · COG: '+(t.cog??'—')+'°<br>Atualizado há '+Math.floor((now-t.updated)/1000)+' s';
+  L.marker([t.lat,t.lon],{icon}).bindPopup(desc).addTo(aisLayer);count++;
+ }
+ $('aisCount').textContent=count+' alvos AIS (até 10 min de idade)';
+}
+setInterval(()=>{if(aisTargets.size)renderAis()},30000);
 if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:true,fadeAnimation:true,markerZoomAnimation:true,preferCanvas:true}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map)}
 else status('Falha ao carregar Leaflet incluído no APK');
+try{$("aisUrl").value=localStorage.getItem("aisUrl")||""}catch(e){}
 refresh();
 </script></body></html>
