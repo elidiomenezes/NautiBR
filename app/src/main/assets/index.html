@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 255px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:5px}#mapScreen>div:nth-of-type(3){flex-wrap:wrap}#mapScreen>div:nth-of-type(3) button{flex:1;min-width:90px}.nauti-graticule-label{background:transparent;border:0;pointer-events:none!important;white-space:nowrap}.nauti-graticule-label span{display:inline-block;padding:2px 4px;border-radius:3px;background:#fffde8e8;color:#142d3c;font:11px monospace;font-weight:700;box-shadow:0 1px 3px #0006}</style></head>
-<body><header><strong>NautiBR · build 70</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 71</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div><div id="ownStatus" style="font-size:12px;padding:5px 0">GPS: aguardando posição</div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -298,8 +298,16 @@ let aisSocketWeb=null;
 function forgetAisKey(){stopAisInternet();localStorage.removeItem('aisStreamKey');$('aisKey').value='';aisMessage('Chave AISStream apagada')}
 function startAisInternet(){
  const key=$('aisKey').value.trim();
- const lat=Number($('aisLat').value),lon=Number($('aisLon').value),radius=Number($('aisRadius').value);
+ let lat=Number($('aisLat').value),lon=Number($('aisLon').value);
+ const radius=Number($('aisRadius').value);
  if(!key){aisMessage('Informe a chave AISStream');return}
+ const gps=ownLast, gpsLat=gps?Number(gps.lat):NaN,gpsLon=gps?Number(gps.lon):NaN;
+ const gpsFresh=gps&&Number.isFinite(gpsLat)&&Number.isFinite(gpsLon)&&Number.isFinite(Number(gps.time))&&Math.abs(Date.now()-Number(gps.time))<120000;
+ if(!gpsFresh){aisMessage('AISStream: aguardando posição GPS recente (até 2 min)');return}
+ lat=gpsLat;lon=gpsLon;
+ $('aisLat').value=lat.toFixed(6);$('aisLon').value=lon.toFixed(6);
+ if(map)map.setView([lat,lon],Math.max(map.getZoom(),12));
+ aisLog('Área AISStream centrada no GPS: '+lat.toFixed(6)+', '+lon.toFixed(6));
  if(!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lon)||Math.abs(lon)>180||!(radius>=1&&radius<=300)){aisMessage('Latitude, longitude ou raio inválidos');return}
  stopAisInternet();
  localStorage.setItem('aisStreamKey',key);
