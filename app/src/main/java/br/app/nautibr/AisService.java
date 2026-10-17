@@ -19,9 +19,10 @@ public class AisService extends Service {
  private static final int NOTIFICATION=1147;
  private static volatile AisService current;
  private static final String DIAG="ais_diagnostics";
+ public static String buildLabel(Context context){try{android.content.pm.PackageInfo p=context.getPackageManager().getPackageInfo(context.getPackageName(),0);return p.versionName+" ("+(Build.VERSION.SDK_INT>=28?p.getLongVersionCode():p.versionCode)+")";}catch(Exception e){return "unknown";}}
  public static void diagnostic(Context context,String message){
   try{android.content.SharedPreferences p=context.getSharedPreferences(DIAG,MODE_PRIVATE);
-   String old=p.getString("log","");String line=new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+" "+message.replaceAll("(?i)(apikey|key)[=:][^\\s,}]+","$1=[REDACTED]");
+   String old=p.getString("log","");String line=new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+" [NautiBR "+buildLabel(context)+"] "+message.replaceAll("(?i)(apikey|key)[=:][^\\s,}]+","$1=[REDACTED]");
    String next=old+"\n"+line;p.edit().putString("log",next.substring(Math.max(0,next.length()-16000))).commit();
   }catch(Throwable ignored){}
  }
@@ -88,6 +89,7 @@ public class AisService extends Service {
   diagnostic(this,"foreground request: "+text);
   if(Build.VERSION.SDK_INT>=29)startForeground(NOTIFICATION,notification(text),ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
   else startForeground(NOTIFICATION,notification(text));
+  diagnostic(this,"foreground CONFIRMED: "+text);
  }
  @Override public int onStartCommand(Intent intent,int flags,int startId){
   if(intent==null){restore();return active?START_STICKY:START_NOT_STICKY;}
