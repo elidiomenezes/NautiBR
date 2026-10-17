@@ -30,17 +30,17 @@ public class MainActivity extends Activity {
   web.setWebViewClient(new WebViewClient(){
    @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest req){
     Uri uri=req.getUrl();
-    if(!"nautibr.local".equals(uri.getHost()) || !"/chart".equals(uri.getPath()))return super.shouldInterceptRequest(view,req);
+    if(!"nautibr.local".equals(uri.getHost()))return super.shouldInterceptRequest(view,req);\n    if("/index.html".equals(uri.getPath()))try{return new WebResourceResponse("text/html","UTF-8",getAssets().open("index.html"));}catch(Exception e){return null;}\n    if(!"/chart".equals(uri.getPath()))return null;
     try{
      String id=uri.getQueryParameter("id");
-     if(id==null||!id.matches("[0-9a-f]{32}\\.(png|jpg|jpeg|webp)"))return null;
+     if(id==null||!id.matches("[0-9a-f]{32}\\.(png|jpg|jpeg|webp|tif|tiff)"))return null;
      File file=new File(charts,id);
-     String type=id.endsWith(".png")?"image/png":id.endsWith(".webp")?"image/webp":"image/jpeg";
+     String type=id.endsWith(".png")?"image/png":id.endsWith(".webp")?"image/webp":(id.endsWith(".tif")||id.endsWith(".tiff"))?"image/tiff":"image/jpeg";
      return new WebResourceResponse(type,null,new FileInputStream(file));
     }catch(Exception e){return null;}
    }
   });
-  web.loadUrl("file:///android_asset/index.html");
+  web.loadUrl("https://nautibr.local/index.html");
  }
  void callback(String fn,String value){runOnUiThread(()->web.evaluateJavascript(fn+"("+JSONObject.quote(value)+")",null));}
  void status(String s){callback("onStatus",s);}
@@ -51,7 +51,7 @@ public class MainActivity extends Activity {
   });}
   @JavascriptInterface public void listCharts(){new Thread(()->{try{
    JSONArray a=new JSONArray();
-   File[] files=charts.listFiles();if(files!=null)for(File file:files)if(file.isFile()){
+   File[] files=charts.listFiles();if(files!=null)for(File file:files)if(file.isFile()&&!file.getName().endsWith(".kap.json")){
     JSONObject o=new JSONObject();o.put("id",file.getName());o.put("name",getPreferences(0).getString(file.getName(),file.getName()));a.put(o);
    }callback("onCharts",a.toString());
   }catch(Exception e){status(e.toString());}}).start();}
@@ -107,11 +107,11 @@ public class MainActivity extends Activity {
        if(entry.isDirectory())continue;
        String leaf=new File(entry.getName().replace('\\','/')).getName();
        if(req==43 && isGeo(leaf)){saveGeo(zip,name+" / "+leaf);count++;}
-       else if(isKap(leaf)){saveKap(zip,name+" / "+leaf);count++;}
+       else if(isKap(leaf)){saveKap(zip,name+" / "+leaf);count++;}\n       else if(isTiff(leaf)){saveTiff(zip,name+" / "+leaf);count++;}
        else if(req==PICK && isImage(leaf)){saveImage(zip,name+" / "+leaf);count++;}
       }
      }
-    }else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}
+    }else if(isTiff(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveTiff(in,name);count++;}}\n    else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}
     else if(req==43 && isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
     else if(req==PICK && isImage(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveImage(in,name);count++;}}
     else errors.add(name+": formato não suportado");
@@ -119,6 +119,20 @@ public class MainActivity extends Activity {
    status(count+" imagem(ns) importada(s). "+String.join("; ",errors));
    new Bridge().listCharts();
   }).start();
+ }
+ boolean isTiff(String name){return name.toLowerCase(Locale.ROOT).matches(".*\\\\.tiff?");}
+ void saveTiff(InputStream in,String name)throws Exception{
+  String id=UUID.randomUUID().toString().replace("-")+".tif";
+  File dest=new File(charts,id);long total=0;
+  try(OutputStream out=new FileOutputStream(dest)){
+   byte[] buffer=new byte[32768];int n;
+   while((n=in.read(buffer))!=-1){total+=n;if(total>200_000_000L)throw new IOException("GeoTIFF maior que 200 MB");out.write(buffer,0,n);}
+  }catch(Exception e){dest.delete();throw e;}
+  try(InputStream check=new FileInputStream(dest)){
+   int a=check.read(),b=check.read(),c=check.read(),d=check.read();
+   if(!((a==73&&b==73&&c==42&&d==0)||(a==77&&b==77&&c==0&&d==42)||(a==73&&b==73&&c==43&&d==0)||(a==77&&b==77&&c==0&&d==43)))throw new IOException("TIFF inválido");
+  }catch(Exception e){dest.delete();throw e;}
+  getPreferences(0).edit().putString(id,name).apply();
  }
  boolean isKap(String name){return name.toLowerCase(Locale.ROOT).endsWith(".kap");}
  void saveKap(InputStream in,String name)throws Exception{
