@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 255px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:5px}#mapScreen>div:nth-of-type(3){flex-wrap:wrap}#mapScreen>div:nth-of-type(3) button{flex:1;min-width:90px}</style></head>
-<body><header><strong>NautiBR · build 56</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 57</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -47,18 +47,13 @@ function renderLayerPanel(){
   if(e.enabled)shown++;
   const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:6px;margin:5px 0';
   const check=document.createElement('input');check.type='checkbox';check.checked=e.enabled;
-  check.onchange=()=>{e.enabled=check.checked;updateChartVisibility();redrawKapLayers();renderLayerPanel()};
+  check.onchange=()=>{e.enabled=check.checked;updateChartVisibility();renderLayerPanel()};
   const label=document.createElement('span');label.textContent=e.name;label.style.cssText='flex:1;overflow-wrap:anywhere;font-size:12px';
   const focus=document.createElement('button');focus.textContent='Ir';focus.style.padding='5px';
-  focus.onclick=()=>{e.enabled=true;map.fitBounds(e.bounds);updateChartVisibility();redrawKapLayers();screen('mapScreen');renderLayerPanel()};
+  focus.onclick=()=>{e.enabled=true;map.fitBounds(e.bounds);updateChartVisibility();screen('mapScreen');renderLayerPanel()};
   row.append(check,label,focus);p.append(row);
  }
  $('layerCount').textContent=shown+' de '+chartLayers.size+' camadas';
-}
-function redrawKapLayers(){
- for(const e of chartLayers.values()){
-  if(e.enabled&&map.hasLayer(e.layer)&&e.nativeZoom!==null&&typeof e.layer.redraw==='function')e.layer.redraw();
- }
 }
 function updateChartVisibility(){
  if(!map)return;
@@ -183,7 +178,7 @@ function openKap(c,focus=true){
    }
   });
   const layer=new KapGrid({tileSize:256,bounds,keepBuffer:2,
-   updateWhenZooming:true,updateWhenIdle:false,noWrap:true,opacity:1});
+   updateWhenZooming:false,updateWhenIdle:true,noWrap:true,opacity:1});
   const px0=map.project(corners[0],0),px1=map.project(corners[1],0),px2=map.project(corners[2],0);
   const scaleX=Math.hypot(px1.x-px0.x,px1.y-px0.y)/nativeW;
   const scaleY=Math.hypot(px2.x-px0.x,px2.y-px0.y)/nativeH;
@@ -345,7 +340,7 @@ try{
  if(area){$('aisLat').value=area.lat;$('aisLon').value=area.lon;$('aisRadius').value=area.radius}
 }catch(e){}
 refresh();
-map.on('zoomend',()=>{updateChartVisibility();redrawKapLayers()});
+map.on('zoomend',updateChartVisibility);
 map.on('moveend',updateChartVisibility);
 updateChartVisibility();
 </script></body></html>
