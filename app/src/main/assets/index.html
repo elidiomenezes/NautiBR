@@ -25,15 +25,17 @@ button:active{background:#426b83}nav button{flex:1}.screen{display:none;padding:
 <section class="screen" id="importScreen">
 <h3>Importar cartas e dados geográficos</h3>
 <p>Selecione arquivos PNG, JPG, WebP ou ZIP contendo imagens. É possível selecionar vários arquivos de uma vez.</p>
-<button onclick="Native.importGeo()">Importar GeoJSON / ZIP geográfico</button><button onclick="Native.importCharts()">Importar imagens / ZIP de imagens</button><h4>Camadas geográficas</h4><div id="geofiles"></div><h4>Imagens sem coordenadas</h4>
+<button onclick="Native.importGeo()">Importar GeoJSON / ZIP geográfico</button><button onclick="Native.importCharts()">Importar imagens / ZIP de imagens</button><h4>Cartas KAP importadas</h4><div id="kapfiles"></div><h4>Camadas geográficas</h4><div id="geofiles"></div><h4>Imagens sem coordenadas</h4>
 <div id="files"></div>
-<p class="warning">ZIPs GeoJSON são extraídos e suas feições posicionadas no mapa. Imagens não georreferenciadas são apenas armazenadas, não sobrepostas ao mapa. KAP/BSB, GeoTIFF e PDF ainda não são suportados.</p>
+<p class="warning">ZIPs com cartas KAP/BSB sem criptografia são decodificados e posicionados aproximadamente pelos pontos REF. A transformação é simplificada e não é apropriada para navegação. GeoTIFF e PDF não são suportados.</p>
 </section>
 <div id="status"></div>
 <script>
 const $=id=>document.getElementById(id);let scale=1,ox=0,oy=0,active=false,points=new Map(),lastDist=0,lastX=0,lastY=0;
 function screen(id){for(let s of document.querySelectorAll('.screen'))s.classList.toggle('active',s.id===id)}
 function onStatus(s){$('status').textContent=s}
+function kapList(){let files=JSON.parse(Native.kapFiles()),list=$('kapfiles');list.replaceChildren();if(!files.length){list.textContent='Nenhuma carta KAP importada.';return}for(let c of files){let row=document.createElement('div'),label=document.createElement('span'),btn=document.createElement('button');row.className='file';label.textContent=c.name;btn.textContent='Mostrar no mapa';btn.onclick=()=>openKap(c);row.append(label,btn);list.append(row)}}
+let kapLayer;function openKap(c){if(!map)return;try{if(kapLayer)map.removeLayer(kapLayer);kapLayer=L.imageOverlay('https://nautibr.local/chart?id='+encodeURIComponent(c.id),c.bounds,{opacity:.85,interactive:false}).addTo(map);map.fitBounds(c.bounds);$('mapname').textContent=c.name+' (posição aproximada)';screen('mapScreen');onStatus('Carta KAP posicionada por aproximação REF; não utilizar para navegação')}catch(e){onStatus(e.message)}}
 function onCharts(s){let files=JSON.parse(s),list=$('files');list.replaceChildren();if(!files.length){list.textContent='Nenhuma imagem importada.';return}
 for(let c of files){let row=document.createElement('div'),label=document.createElement('span'),btn=document.createElement('button');row.className='file';label.textContent=c.name;btn.textContent='Abrir no mapa';btn.onclick=()=>openChart(c);row.append(label,btn);list.append(row)}}
 function openChart(c){let im=$('chartImage');im.onload=()=>{im.style.display='block';$('empty').style.display='none';fit()};im.onerror=()=>onStatus('Não foi possível abrir a imagem');im.src='https://nautibr.local/chart?id='+encodeURIComponent(c.id);$('mapname').textContent=c.name;screen('mapScreen')}
@@ -54,8 +56,8 @@ function onCharts(s){let files=JSON.parse(s),list=$('files');list.replaceChildre
 for(let c of files){let row=document.createElement('div'),label=document.createElement('span');row.className='file';label.textContent=c.name+' (sem georreferenciamento)';row.append(label);list.append(row)}}
 function geoList(){let files=JSON.parse(Native.geoFiles()),list=$('geofiles');list.replaceChildren();if(!files.length){list.textContent='Nenhuma camada GeoJSON importada.';return}
 for(let c of files){let row=document.createElement('div'),label=document.createElement('span'),btn=document.createElement('button');row.className='file';label.textContent=c.name;btn.textContent='Mostrar no mapa';btn.onclick=()=>openGeo(c);row.append(label,btn);list.append(row)}}
-function onGeoImported(n){geoList()}
+function onGeoImported(n){geoList();kapList()}
 function openGeo(c){try{let data=JSON.parse(Native.readGeo(c.id));if(layer)map.removeLayer(layer);layer=L.geoJSON(data,{onEachFeature:(feature,shape)=>{if(feature.properties)shape.bindPopup(Object.entries(feature.properties).slice(0,8).map(([k,v])=>k+': '+String(v)).join('<br>'))}}).addTo(map);if(layer.getBounds().isValid())map.fitBounds(layer.getBounds(),{padding:[20,20]});$('mapname').textContent=c.name;screen('mapScreen');onStatus('Camada geográfica carregada')}catch(e){onStatus('Erro ao abrir GeoJSON: '+e.message)}}
 if(window.L){map=L.map('map',{zoomControl:false}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);$('empty').remove();}else{onStatus('Não foi possível carregar o mapa. Verifique a internet.')}
-Native.listCharts();geoList();
+Native.listCharts();geoList();kapList();
 </script></body></html>
