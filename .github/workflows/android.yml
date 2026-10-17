@@ -12,7 +12,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - name: Build debug APK
         uses: gradle/actions/setup-gradle@v4
         with:
