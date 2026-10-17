@@ -55,7 +55,6 @@ public class MainActivity extends Activity {
   super.onCreate(state);
   IntentFilter filter=new IntentFilter("br.app.nautibr.AIS_EVENT");
   if(android.os.Build.VERSION.SDK_INT>=33)registerReceiver(aisReceiver,filter,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(aisReceiver,filter);
-  if(android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},74);
   charts=new File(getFilesDir(),"charts");charts.mkdirs();
   web=new WebView(this);setContentView(web);
   web.getSettings().setJavaScriptEnabled(true);web.getSettings().setDomStorageEnabled(true);
@@ -78,13 +77,29 @@ public class MainActivity extends Activity {
   });
   web.loadUrl("https://nautibr.local/index.html");
   locationManager=(LocationManager)getSystemService(LOCATION_SERVICE);
-  if(android.os.Build.VERSION.SDK_INT>=23 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED)
+  requestLocationThenNotifications();
+ }
+ void requestLocationThenNotifications(){
+  if(android.os.Build.VERSION.SDK_INT>=23 &&
+   checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED &&
+   checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED){
    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},GPS_PERMISSION);
-  else startOwnLocation();
+  }else{
+   startOwnLocation();
+   requestNotificationPermission();
+  }
+ }
+ void requestNotificationPermission(){
+  if(android.os.Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
+   requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},74);
  }
  @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] grants){
   super.onRequestPermissionsResult(code,permissions,grants);
-  if(code==GPS_PERMISSION&&grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)startOwnLocation();
+  if(code==GPS_PERMISSION){
+   if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED||
+      checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED)startOwnLocation();
+   requestNotificationPermission();
+  }
  }
  void startOwnLocation(){
   if(locationManager==null||ownLocationListener!=null)return;
