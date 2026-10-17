@@ -8,16 +8,16 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR · build 49</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 50</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
 <p class="warning">Visualizador experimental. Não usar para navegação real.</p></section>
 <section class="screen" id="importScreen"><h3>Importar cartas</h3>
-<p>Selecione KAP/BSB, GeoJSON ou ZIP contendo esses formatos.</p>
-<button onclick="Native.importCharts()">Importar KAP ou ZIP</button>
+<p>Selecione arquivos .KAP, catálogos .BSB, GeoJSON ou ZIP contendo esses formatos.</p>
+<button onclick="Native.importCharts()">Importar KAP/BSB ou ZIP</button>
 <button onclick="Native.importGeo()">Importar GeoJSON ou ZIP</button>
-<h4>Cartas KAP</h4><div id="kapfiles"></div><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
+<h4>Cartas KAP</h4><div id="kapfiles"></div><h4>Catálogos BSB</h4><div id="bsbfiles"></div><p class="warning">Arquivos .BSB são lidos como catálogos/cabeçalhos. A imagem raster é fornecida pelos arquivos .KAP associados.</p><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
 <p class="warning">Cartas KAP e GeoJSON importadas funcionam offline. O mapa-base OpenStreetMap exige internet.</p></section>
 <section class="screen" id="aisScreen">
 <h3>AIS — alvos em tempo real</h3>
@@ -60,13 +60,20 @@ function registerChart(id,name,layer,bounds){
  const e={name,layer,bounds};chartLayers.set(id,e);layer.addTo(map);renderLayerPanel();return e;
 }
 function refresh(){
- for(const id of ['kapfiles','geofiles'])$(id).replaceChildren();
+ for(const id of ['kapfiles','bsbfiles','geofiles'])$(id).replaceChildren();
  try{
   for(const c of JSON.parse(Native.kapFiles())){
    makeRow('kapfiles',c.name,()=>openKap(c,true));
    if(map&&!chartLayers.has('kap:'+c.id))openKap(c,false);
   }
  }catch(e){status('Cartas KAP: '+e.message)}
+ try{
+  for(const c of JSON.parse(Native.bsbFiles())){
+   const p=document.createElement('p');p.style.fontSize='12px';
+   p.textContent=c.name+' · '+(c.kapReferences?.length?c.kapReferences.join(', '):'catálogo importado');
+   $('bsbfiles').append(p);
+  }
+ }catch(e){status('Catálogos BSB: '+e.message)}
  try{
   for(const c of JSON.parse(Native.geoFiles())){
    makeRow('geofiles',c.name,()=>openGeo(c,true));
