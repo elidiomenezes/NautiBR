@@ -332,7 +332,7 @@ function startAisInternet(){
  if(map)map.setView([lat,lon],Math.max(map.getZoom(),12));
  aisLog('AISStream centrado em '+(gpsFresh?'GPS':'Santos (padrão)')+': '+lat.toFixed(6)+', '+lon.toFixed(6));
  if(!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lon)||Math.abs(lon)>180||!(radius>=1&&radius<=300)){aisMessage('Latitude, longitude ou raio inválidos');return}
- stopAisInternet();
+ if(aisPollTimer)clearInterval(aisPollTimer);aisPollTimer=null;
  localStorage.setItem('aisStreamKey',key);
  localStorage.setItem('aisStreamArea',JSON.stringify({lat,lon,radius}));
  const deltaLat=radius/111.32,deltaLon=radius/(111.32*Math.max(.01,Math.cos(lat*Math.PI/180)));
