@@ -8,10 +8,10 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR · build 48</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 49</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
-<section class="screen active" id="mapScreen"><div id="mapname">Mapa de Santos</div><div id="map"></div>
-<div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Carta inteira</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
+<section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div>
+<div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
 <p class="warning">Visualizador experimental. Não usar para navegação real.</p></section>
 <section class="screen" id="importScreen"><h3>Importar cartas</h3>
 <p>Selecione KAP/BSB, GeoJSON ou ZIP contendo esses formatos.</p>
@@ -34,18 +34,58 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 </section>
 <div id="status"></div><script>
 const $=id=>document.getElementById(id);let map,geoLayer,kapLayer;
+const chartLayers=new Map();let chartInit=false;
 function status(s){$('status').textContent=s}
 function screen(id){for(const e of document.querySelectorAll('.screen'))e.classList.toggle('active',e.id===id);if(id==='mapScreen'&&map)setTimeout(()=>map.invalidateSize(),50)}
 function makeRow(container,name,fn){const row=document.createElement('div'),label=document.createElement('span'),btn=document.createElement('button');row.className='file';label.textContent=name;btn.textContent='Mostrar no mapa';btn.onclick=fn;row.append(label,btn);$(container).append(row)}
 function onStatus(s){status(s);refresh()}
 function onGeoImported(s){refresh()}
+function toggleLayerPanel(){const p=$('layerPanel');p.style.display=p.style.display==='none'?'block':'none';renderLayerPanel()}
+function renderLayerPanel(){
+ const p=$('layerPanel');p.replaceChildren();let shown=0;
+ for(const [id,e] of chartLayers){
+  if(map.hasLayer(e.layer))shown++;
+  const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:6px;margin:5px 0';
+  const check=document.createElement('input');check.type='checkbox';check.checked=map.hasLayer(e.layer);
+  check.onchange=()=>{if(check.checked)e.layer.addTo(map);else map.removeLayer(e.layer);renderLayerPanel()};
+  const label=document.createElement('span');label.textContent=e.name;label.style.cssText='flex:1;overflow-wrap:anywhere;font-size:12px';
+  const focus=document.createElement('button');focus.textContent='Ir';focus.style.padding='5px';
+  focus.onclick=()=>{if(!map.hasLayer(e.layer))e.layer.addTo(map);map.fitBounds(e.bounds);screen('mapScreen');renderLayerPanel()};
+  row.append(check,label,focus);p.append(row);
+ }
+ $('layerCount').textContent=shown+' de '+chartLayers.size+' camadas';
+}
+function registerChart(id,name,layer,bounds){
+ if(chartLayers.has(id))return chartLayers.get(id);
+ const e={name,layer,bounds};chartLayers.set(id,e);layer.addTo(map);renderLayerPanel();return e;
+}
 function refresh(){
  for(const id of ['kapfiles','geofiles'])$(id).replaceChildren();
- try{for(const c of JSON.parse(Native.kapFiles()))makeRow('kapfiles',c.name,()=>openKap(c))}catch(e){status(e.message)}
- try{for(const c of JSON.parse(Native.geoFiles()))makeRow('geofiles',c.name,()=>openGeo(c))}catch(e){status(e.message)}
-
+ try{
+  for(const c of JSON.parse(Native.kapFiles())){
+   makeRow('kapfiles',c.name,()=>openKap(c,true));
+   if(map&&!chartLayers.has('kap:'+c.id))openKap(c,false);
+  }
+ }catch(e){status('Cartas KAP: '+e.message)}
+ try{
+  for(const c of JSON.parse(Native.geoFiles())){
+   makeRow('geofiles',c.name,()=>openGeo(c,true));
+   if(map&&!chartLayers.has('geo:'+c.id))openGeo(c,false);
+  }
+ }catch(e){status('Camadas GeoJSON: '+e.message)}
+ renderLayerPanel();
 }
-function openGeo(c){try{const json=JSON.parse(Native.readGeo(c.id));if(geoLayer)map.removeLayer(geoLayer);geoLayer=L.geoJSON(json).addTo(map);if(geoLayer.getBounds().isValid())map.fitBounds(geoLayer.getBounds());$('mapname').textContent=c.name;screen('mapScreen')}catch(e){status(e.message)}}
+function openGeo(c,focus=true){
+ try{
+  const id='geo:'+c.id;
+  let e=chartLayers.get(id);
+  if(!e){
+   const json=JSON.parse(Native.readGeo(c.id)),layer=L.geoJSON(json),bounds=layer.getBounds();
+   e=registerChart(id,c.name,layer,bounds);
+  }
+  if(focus){if(!map.hasLayer(e.layer))e.layer.addTo(map);if(e.bounds.isValid())map.fitBounds(e.bounds);screen('mapScreen');renderLayerPanel()}
+ }catch(err){status('GeoJSON: '+err.message)}
+}
 const kapImageCache=new Map();
 function kapImage(id){
  if(!kapImageCache.has(id)){
@@ -57,10 +97,15 @@ function kapImage(id){
  return kapImageCache.get(id);
 }
 let kapBounds=null;
-function fitKap(){if(kapBounds)map.fitBounds(kapBounds);else map.setView([-23.96,-46.3],11)}
-function openKap(c){
+function fitKap(){let bounds=null;for(const e of chartLayers.values())if(map.hasLayer(e.layer)&&e.bounds.isValid())bounds=bounds?bounds.extend(e.bounds):L.latLngBounds(e.bounds);if(bounds)map.fitBounds(bounds);else map.setView([-23.96,-46.3],11)}
+function openKap(c,focus=true){
  try{
-  if(kapLayer)map.removeLayer(kapLayer);
+  const id="kap:"+c.id;
+  if(chartLayers.has(id)){
+   const e=chartLayers.get(id);
+   if(focus){if(!map.hasLayer(e.layer))e.layer.addTo(map);map.fitBounds(e.bounds);screen("mapScreen");renderLayerPanel()}
+   return;
+  }
   const corners=c.corners.map(p=>L.latLng(p[0],p[1]));
   const bounds=L.latLngBounds(corners);kapBounds=bounds;
   const nativeW=c.originalWidth||c.previewWidth,nativeH=c.originalHeight||c.previewHeight;
@@ -109,8 +154,10 @@ function openKap(c){
     return canvas;
    }
   });
-  kapLayer=new KapGrid({tileSize:256,bounds,keepBuffer:2,
-   updateWhenZooming:false,updateWhenIdle:true,noWrap:true,opacity:1}).addTo(map);
+  const layer=new KapGrid({tileSize:256,bounds,keepBuffer:2,
+   updateWhenZooming:false,updateWhenIdle:true,noWrap:true,opacity:1});
+  registerChart(id,c.name,layer,bounds);
+  if(!focus)return;
   // Fit-to-chart is often unreadable on phones. Start near the native
   // chart resolution (approximately one source pixel per screen pixel).
   const px0=map.project(corners[0],0),px1=map.project(corners[1],0),px2=map.project(corners[2],0);
@@ -120,7 +167,7 @@ function openKap(c){
   const center=bounds.getCenter();
   if(Number.isFinite(nativeZoom))map.setView(center,Math.max(map.getMinZoom(),Math.min(map.getMaxZoom(),Math.floor(nativeZoom))));
   else map.fitBounds(bounds);
-  $('mapname').textContent=c.name+' · RMS '+Number(c.rmsPixels||0).toFixed(2)+' px';
+  renderLayerPanel();
   screen('mapScreen');
  }catch(e){status('KAP: '+e.message)}
 }
