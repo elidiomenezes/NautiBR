@@ -1,5 +1,10 @@
 package br.app.nautibr;
 import android.app.Activity;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -30,6 +35,9 @@ public class MainActivity extends Activity {
  private static final int PICK=42;
  private static final String CATALOG="https://www.marinha.mil.br/chm/dados-do-segnav/cartas-raster";
  private WebView web;
+ private LocationManager locationManager;
+ private LocationListener ownLocationListener;
+ private static final int GPS_PERMISSION=73;
  private File charts;
  private volatile boolean aisRunning=false;
  private Thread aisThread;
@@ -60,6 +68,38 @@ public class MainActivity extends Activity {
    }
   });
   web.loadUrl("https://nautibr.local/index.html");
+  locationManager=(LocationManager)getSystemService(LOCATION_SERVICE);
+  if(android.os.Build.VERSION.SDK_INT>=23 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED)
+   requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},GPS_PERMISSION);
+  else startOwnLocation();
+ }
+ @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] grants){
+  super.onRequestPermissionsResult(code,permissions,grants);
+  if(code==GPS_PERMISSION&&grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)startOwnLocation();
+ }
+ void startOwnLocation(){
+  if(locationManager==null||ownLocationListener!=null)return;
+  if(android.os.Build.VERSION.SDK_INT>=23 &&
+   checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED &&
+   checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED)return;
+  ownLocationListener=location->{
+   try{
+    JSONObject j=new JSONObject().put("lat",location.getLatitude()).put("lon",location.getLongitude())
+     .put("speed",location.hasSpeed()?location.getSpeed()*1.94384449:JSONObject.NULL)
+     .put("course",location.hasBearing()?location.getBearing():JSONObject.NULL)
+     .put("accuracy",location.hasAccuracy()?location.getAccuracy():JSONObject.NULL)
+     .put("time",location.getTime());
+    callback("onOwnLocation",j.toString());
+   }catch(Exception ignored){}
+  };
+  try{
+   if(locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER))
+    locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER,1000,1,ownLocationListener);
+   if(locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER))
+    locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER,3000,5,ownLocationListener);
+   Location last=locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+   if(last!=null)ownLocationListener.onLocationChanged(last);
+  }catch(SecurityException ignored){}
  }
  synchronized void stopAisConnection(){
   aisRunning=false;
@@ -71,7 +111,7 @@ public class MainActivity extends Activity {
   WebSocket socket=aisWebSocket;aisWebSocket=null;
   if(socket!=null)socket.close(1000,"Disconnected");
  }
- @Override protected void onDestroy(){stopAisConnection();stopAisStream();aisHttp.dispatcher().executorService().shutdown();super.onDestroy();}
+ @Override protected void onDestroy(){if(locationManager!=null&&ownLocationListener!=null)locationManager.removeUpdates(ownLocationListener);stopAisConnection();stopAisStream();aisHttp.dispatcher().executorService().shutdown();super.onDestroy();}
  void callback(String fn,String value){runOnUiThread(()->web.evaluateJavascript(fn+"("+JSONObject.quote(value)+")",null));}
  void status(String s){callback("onStatus",s);}
  public class Bridge{
