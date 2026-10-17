@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 255px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:5px}#mapScreen>div:nth-of-type(3){flex-wrap:wrap}#mapScreen>div:nth-of-type(3) button{flex:1;min-width:90px}</style></head>
-<body><header><strong>NautiBR · build 62</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 63</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -135,89 +135,60 @@ function openKap(c,focus=true){
   // Display each original-resolution PNG strip as a native image.
   // Leaflet controls the viewport; one affine transform per strip preserves
   // the chart's georeferencing without rasterizing it again at every zoom.
+  // One native-resolution raster coordinate system per chart.
+  // Leaflet supplies the projected coordinates during zoom animation;
+  // a single CSS matrix moves/scales the entire set of PNG strips.
   const KapOverlay=L.Layer.extend({
    onAdd(m){
     this._map=m;
     this._container=L.DomUtil.create('div','nautibr-kap-overlay',m.getPanes().overlayPane);
-    this._container.style.cssText='position:absolute;left:0;top:0;pointer-events:none;';
+    this._container.style.cssText='position:absolute;left:0;top:0;pointer-events:none;transform-origin:0 0;will-change:transform;';
+    this._container.style.width=nativeW+'px';
+    this._container.style.height=nativeH+'px';
     this._images=tiles.map(t=>{
      const img=L.DomUtil.create('img','',this._container);
      img.src='https://nautibr.local/chart?id='+encodeURIComponent(t.id);
      img.alt='';img.draggable=false;
-     img.style.cssText='position:absolute;left:0;top:0;max-width:none;max-height:none;transform-origin:0 0;image-rendering:auto;';
-     img.width=t.w;img.height=t.h;
-     return {img,t};
+     img.style.cssText='position:absolute;max-width:none;max-height:none;pointer-events:none;';
+     img.style.left=t.x+'px';img.style.top=t.y+'px';
+     img.style.width=t.w+'px';img.style.height=t.h+'px';
+     return img;
     });
-    m.on('zoomstart',this._beginZoom,this);
     m.on('zoomanim',this._animateZoom,this);
-    m.on('zoomend',this._endZoom,this);
-    m.on('viewreset moveend',this._position,this);
+    m.on('zoomend viewreset moveend',this._position,this);
     this._position();
    },
    onRemove(m){
-    m.off('zoomstart',this._beginZoom,this);
     m.off('zoomanim',this._animateZoom,this);
-    m.off('zoomend',this._endZoom,this);
-    m.off('viewreset moveend',this._position,this);
-    this._clearSnapshot();
+    m.off('zoomend viewreset moveend',this._position,this);
     L.DomUtil.remove(this._container);
     this._images=[];
+    this._map=null;
    },
-   _geometry(){
-    const m=this._map,p0=m.latLngToLayerPoint(corners[0]);
-    const p1=m.latLngToLayerPoint(corners[1]),p2=m.latLngToLayerPoint(corners[2]);
-    return {p0,a:(p1.x-p0.x)/nativeW,b:(p1.y-p0.y)/nativeW,
-      c:(p2.x-p0.x)/nativeH,d:(p2.y-p0.y)/nativeH};
-   },
-   _beginZoom(){
-    if(!this._map||this._snapshot)return;
-    const m=this._map,size=m.getSize(),dpr=Math.min(2,window.devicePixelRatio||1);
-    const canvas=L.DomUtil.create('canvas','leaflet-zoom-animated',m.getPanes().overlayPane);
-    canvas.width=Math.ceil(size.x*dpr);canvas.height=Math.ceil(size.y*dpr);
-    canvas.style.cssText='position:absolute;pointer-events:none;transform-origin:0 0;width:'+size.x+'px;height:'+size.y+'px;';
-    const origin=m.containerPointToLayerPoint([0,0]);
-    const ctx=canvas.getContext('2d');
-    if(!ctx){L.DomUtil.remove(canvas);return}
-    ctx.scale(dpr,dpr);
-    const {p0,a,b,c,d}=this._geometry();
-    ctx.setTransform(a*dpr,b*dpr,c*dpr,d*dpr,(p0.x-origin.x)*dpr,(p0.y-origin.y)*dpr);
-    let drawn=0;
-    for(const {img,t} of this._images){
-     if(img.complete&&img.naturalWidth>0){
-      ctx.drawImage(img,t.x,t.y,t.w,t.h);drawn++;
-     }
-    }
-    if(!drawn){L.DomUtil.remove(canvas);return}
-    this._snapshot={canvas,origin};
-    L.DomUtil.setPosition(canvas,origin);
-    this._container.style.visibility='hidden';
+   _setAffine(p0,p1,p2,animate){
+    if(!this._container)return;
+    const a=(p1.x-p0.x)/nativeW,b=(p1.y-p0.y)/nativeW;
+    const c=(p2.x-p0.x)/nativeH,d=(p2.y-p0.y)/nativeH;
+    const el=this._container;
+    el.style.transition=animate?'transform 250ms cubic-bezier(0,0,0.25,1)':'none';
+    el.style.transform='matrix('+[a,b,c,d,p0.x,p0.y].join(',')+')';
    },
    _animateZoom(e){
-    if(!this._snapshot||!this._map)return;
-    const m=this._map,scale=m.getZoomScale(e.zoom,m.getZoom());
-    const anchor=m.layerPointToLatLng(this._snapshot.origin);
-    const offset=m._latLngToNewLayerPoint(anchor,e.zoom,e.center);
-    L.DomUtil.setTransform(this._snapshot.canvas,offset,scale);
-   },
-   _clearSnapshot(){
-    if(this._snapshot){L.DomUtil.remove(this._snapshot.canvas);this._snapshot=null}
-    if(this._container)this._container.style.visibility='';
-   },
-   _endZoom(){
-    this._position();
-    this._clearSnapshot();
+    if(!this._map)return;
+    const m=this._map;
+    this._setAffine(
+      m._latLngToNewLayerPoint(corners[0],e.zoom,e.center),
+      m._latLngToNewLayerPoint(corners[1],e.zoom,e.center),
+      m._latLngToNewLayerPoint(corners[2],e.zoom,e.center),true);
    },
    _position(){
-    if(!this._map||!this._container)return;
-    const {p0,a,b,c,d}=this._geometry();
-    for(const {img,t} of this._images){
-     const x=p0.x+a*t.x+c*t.y,y=p0.y+b*t.x+d*t.y;
-     img.style.transform='matrix('+[a,b,c,d,x,y].join(',')+')';
-    }
+    if(!this._map)return;
+    const m=this._map;
+    this._setAffine(m.latLngToLayerPoint(corners[0]),
+      m.latLngToLayerPoint(corners[1]),m.latLngToLayerPoint(corners[2]),false);
    },
    bringToFront(){
-    if(this._container)this._container.parentNode.appendChild(this._container);
-    if(this._snapshot)this._snapshot.canvas.parentNode.appendChild(this._snapshot.canvas);
+    if(this._container&&this._container.parentNode)this._container.parentNode.appendChild(this._container);
     return this;
    }
   });
