@@ -143,14 +143,14 @@ public class MainActivity extends Activity {
  void callback(String fn,String value){runOnUiThread(()->web.evaluateJavascript(fn+"("+JSONObject.quote(value)+")",null));}
  void status(String s){callback("onStatus",s);}
  public class Bridge{
-  @JavascriptInterface public void stopAISStream(){startService(new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STOP));}
+  @JavascriptInterface public void stopAISStream(){stopService(new Intent(MainActivity.this,AisService.class));}
   @JavascriptInterface public void connectAISStream(String key,double lat,double lon,double radius){
    if(key==null||key.trim().isEmpty()||key.length()>512||!Double.isFinite(lat)||Math.abs(lat)>90||!Double.isFinite(lon)||Math.abs(lon)>180||!Double.isFinite(radius)||radius<1||radius>300){callback("onAisStatus","AISStream: parâmetros inválidos");return;}
    Intent i=new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STREAM);
    i.putExtra("key",key.trim()).putExtra("lat",lat).putExtra("lon",lon).putExtra("radius",radius);
    try{startForegroundService(i);}catch(Exception e){callback("onAisStatus","AISStream: "+e.getMessage());}
   }
-  @JavascriptInterface public void stopAIS(){startService(new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STOP));}
+  @JavascriptInterface public void stopAIS(){stopService(new Intent(MainActivity.this,AisService.class));}
   @JavascriptInterface public void connectAIS(String host,int port){
    if(host==null||host.length()>255||!host.matches("[a-zA-Z0-9.:-]+")||port<1||port>65535){callback("onAisStatus","AIS TCP: endereço inválido");return;}
    Intent i=new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_TCP);
