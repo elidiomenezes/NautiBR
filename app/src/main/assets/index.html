@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR · build 37</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 38</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="Native.openNavy()">Site da Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Mapa de Santos</div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -26,7 +26,6 @@ function status(s){$('status').textContent=s}
 function screen(id){for(const e of document.querySelectorAll('.screen'))e.classList.toggle('active',e.id===id);if(id==='mapScreen'&&map)setTimeout(()=>map.invalidateSize(),50)}
 function makeRow(container,name,fn){const row=document.createElement('div'),label=document.createElement('span'),btn=document.createElement('button');row.className='file';label.textContent=name;btn.textContent='Mostrar no mapa';btn.onclick=fn;row.append(label,btn);$(container).append(row)}
 function onStatus(s){status(s);refresh()}
-function onCharts(s){refresh()}
 function onGeoImported(s){refresh()}
 function refresh(){
  for(const id of ['kapfiles','tifffiles','geofiles'])$(id).replaceChildren();
@@ -77,11 +76,11 @@ function openKap(c){
   if(kapLayer)map.removeLayer(kapLayer);
   const corners=c.corners.map(p=>L.latLng(p[0],p[1])),bounds=L.latLngBounds(corners);
   const img=document.createElement('img');img.src='https://nautibr.local/chart?id='+encodeURIComponent(c.id);
-  img.style.cssText='position:absolute;left:0;top:0;max-width:none;max-height:none;transform-origin:0 0;pointer-events:none;opacity:.85';
+  img.style.cssText='position:absolute;left:0;top:0;max-width:none;max-height:none;transform-origin:0 0;pointer-events:none;opacity:1;image-rendering:auto';
   map.getPane('overlayPane').append(img);
   function redraw(){if(!img.naturalWidth)return;const a=map.latLngToLayerPoint(corners[0]),b=map.latLngToLayerPoint(corners[1]),d=map.latLngToLayerPoint(corners[2]);img.style.transform='matrix('+((b.x-a.x)/img.naturalWidth)+','+((b.y-a.y)/img.naturalWidth)+','+((d.x-a.x)/img.naturalHeight)+','+((d.y-a.y)/img.naturalHeight)+','+a.x+','+a.y+')'}
-  img.onload=redraw;map.on('zoomend moveend viewreset',redraw);
-  kapLayer=L.layerGroup().addTo(map);kapLayer.on('remove',()=>{map.off('zoomend moveend viewreset',redraw);img.remove()});
+  img.onload=redraw;map.on('zoomend moveend viewreset resize',redraw);
+  kapLayer=L.layerGroup().addTo(map);kapLayer.on('remove',()=>{map.off('zoomend moveend viewreset resize',redraw);img.remove()});
   map.fitBounds(bounds);$('mapname').textContent=c.name+' · RMS '+c.rmsPixels.toFixed(2)+' px';screen('mapScreen');
  }catch(e){status('KAP: '+e.message)}
 }
@@ -161,7 +160,7 @@ async function openTiff(c){
   map.fitBounds([se,nw]);$('mapname').textContent=c.name+' · '+projection.name;screen('mapScreen');status('GeoTIFF carregado: '+width+' × '+height);
  }catch(e){status('GeoTIFF rejeitado: '+e.message)}
 }
-if(window.L){map=L.map('map',{zoomControl:false}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map)}
+if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:false,fadeAnimation:false,markerZoomAnimation:false,preferCanvas:true}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map)}
 else status('Falha ao carregar Leaflet incluído no APK');
 refresh();
 </script></body></html>
