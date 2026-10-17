@@ -468,7 +468,7 @@ function renderAis(){
  $('aisCount').textContent=count+' alvos na última hora · '+aisMessagesReceived+' mensagens / '+aisPositionsReceived+' posições recebidas';
 }
 setInterval(()=>{if(aisTargets.size)renderAis()},30000);
-if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:true,fadeAnimation:false,markerZoomAnimation:true,preferCanvas:true,maxZoom:24}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:24,maxNativeZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);map.createPane('nautiGrid');map.getPane('nautiGrid').style.zIndex='480';map.getPane('nautiGrid').style.pointerEvents='none';map.createPane('nautiNav');map.getPane('nautiNav').style.zIndex='490';map.getPane('nautiNav').style.pointerEvents='none';map.on('moveend zoomend',updateGraticule);updateGraticule();}
+if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:true,fadeAnimation:false,markerZoomAnimation:true,preferCanvas:true,maxZoom:24}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:24,maxNativeZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);map.createPane('nautiGrid');map.getPane('nautiGrid').style.zIndex='480';map.getPane('nautiGrid').style.pointerEvents='none';map.createPane('nautiNav');map.getPane('nautiNav').style.zIndex='490';map.getPane('nautiNav').style.pointerEvents='auto';map.on('moveend zoomend',updateGraticule);updateGraticule();}
 else status('Falha ao carregar Leaflet incluído no APK');
 try{
  $('aisKey').value=localStorage.getItem('aisStreamKey')||'';
