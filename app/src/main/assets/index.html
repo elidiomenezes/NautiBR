@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR · build 42</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 43</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="Native.openNavy()">Site da Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Mapa de Santos</div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -127,8 +127,19 @@ function geotiffProjection(keys){
   if(ct!==1&&ct!==7)throw Error('Projeção definida pelo usuário: transformação '+ct+' não implementada. Parâmetros: '+JSON.stringify(keys).slice(0,350));
   const required=ct===7?[]:['ProjNatOriginLongGeoKey','ProjScaleAtNatOriginGeoKey','ProjFalseEastingGeoKey','ProjFalseNorthingGeoKey'];
   for(const key of required)if(!Number.isFinite(Number(keys[key])))throw Error('Projeção definida pelo usuário sem '+key);
-  lon0=Number(keys.ProjNatOriginLongGeoKey??keys.ProjCenterLongGeoKey??0);lat0=Number(keys.ProjNatOriginLatGeoKey||0);
+  if(keys.ProjNatOriginLongGeoKey===undefined&&keys.ProjCenterLongGeoKey===undefined)throw Error('Longitude de origem ausente na projeção personalizada');
+  lon0=Number(keys.ProjNatOriginLongGeoKey??keys.ProjCenterLongGeoKey);lat0=Number(keys.ProjNatOriginLatGeoKey||0);
   k0=Number(keys.ProjScaleAtNatOriginGeoKey??1);falseE=Number(keys.ProjFalseEastingGeoKey??0);falseN=Number(keys.ProjFalseNorthingGeoKey??0);
+  if(ct===7&&keys.ProjStdParallel1GeoKey!==undefined&&keys.ProjScaleAtNatOriginGeoKey===undefined){
+   const phi=Number(keys.ProjStdParallel1GeoKey)*Math.PI/180;
+   const eccentricity2=(1/invF)*(2-1/invF);
+   k0=Math.cos(phi)/Math.sqrt(1-eccentricity2*Math.sin(phi)**2);
+  }
+  const units=Number(keys.ProjLinearUnitsGeoKey??9001);
+  if(units!==9001)throw Error('Unidade projetada '+units+' não suportada: não é metro');
+  const datum=Number(keys.GeogGeodeticDatumGeoKey??6326);
+  if(datum!==6326&&datum!==32767)throw Error('Datum '+datum+' requer transformação para WGS84; posicionamento recusado');
+  if(datum===32767&&!keys.GeogTOWGS84GeoKey)throw Error('Datum personalizado sem transformação WGS84; posição não confiável');
   const ellipsoid=Number(keys.GeogEllipsoidGeoKey||7030);
   if(ellipsoid!==7030 && ellipsoid!==32767)throw Error('Elipsoide '+ellipsoid+' não suportado');
   if(ellipsoid===32767){
