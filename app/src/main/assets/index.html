@@ -18,7 +18,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <button onclick="Native.importCharts()">Importar KAP, GeoTIFF ou ZIP</button>
 <button onclick="Native.importGeo()">Importar GeoJSON ou ZIP</button>
 <h4>Cartas KAP</h4><div id="kapfiles"></div><h4>GeoTIFF</h4><div id="tifffiles"></div><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
-<p class="warning">GeoTIFF: somente projeções EPSG:4326 e EPSG:3857, sem rotação, nesta versão. Formatos incompatíveis são rejeitados. O decodificador e as cartas importadas funcionam offline. O mapa-base OpenStreetMap exige internet; sem ela, as cartas continuam visíveis sobre o fundo do mapa.</p></section>
+<p class="warning">GeoTIFF: EPSG:4326, EPSG:3857, UTM WGS84 e Transversa de Mercator personalizada com parâmetros completos, sem rotação, nesta versão. Formatos incompatíveis são rejeitados. O decodificador e as cartas importadas funcionam offline. O mapa-base OpenStreetMap exige internet; sem ela, as cartas continuam visíveis sobre o fundo do mapa.</p></section>
 <div id="status"></div>
 <script>
 const $=id=>document.getElementById(id);let map,geoLayer,kapLayer,tiffLayer;
@@ -52,6 +52,42 @@ function openKap(c){
   map.fitBounds(bounds);$('mapname').textContent=c.name+' · RMS '+c.rmsPixels.toFixed(2)+' px';screen('mapScreen');
  }catch(e){status('KAP: '+e.message)}
 }
+function utmInverse(easting,northing,lon0,lat0,k0,falseE,falseN,a,invF){
+ const f=1/invF,e2=f*(2-f),ep2=e2/(1-e2);
+ const M0=a*((1-e2/4-3*e2*e2/64-5*e2**3/256)*lat0-(3*e2/8+3*e2*e2/32+45*e2**3/1024)*Math.sin(2*lat0)+(15*e2*e2/256+45*e2**3/1024)*Math.sin(4*lat0)-(35*e2**3/3072)*Math.sin(6*lat0));
+ const M=M0+(northing-falseN)/k0,mu=M/(a*(1-e2/4-3*e2*e2/64-5*e2**3/256));
+ const e1=(1-Math.sqrt(1-e2))/(1+Math.sqrt(1-e2));
+ const fp=mu+(3*e1/2-27*e1**3/32)*Math.sin(2*mu)+(21*e1*e1/16-55*e1**4/32)*Math.sin(4*mu)+(151*e1**3/96)*Math.sin(6*mu)+(1097*e1**4/512)*Math.sin(8*mu);
+ const C=ep2*Math.cos(fp)**2,T=Math.tan(fp)**2,N=a/Math.sqrt(1-e2*Math.sin(fp)**2),R=a*(1-e2)/(1-e2*Math.sin(fp)**2)**1.5,D=(easting-falseE)/(N*k0);
+ const lat=fp-(N*Math.tan(fp)/R)*(D*D/2-(5+3*T+10*C-4*C*C-9*ep2)*D**4/24+(61+90*T+298*C+45*T*T-252*ep2-3*C*C)*D**6/720);
+ const lon=lon0+(D-(1+2*T+C)*D**3/6+(5-2*C+28*T-3*C*C+8*ep2+24*T*T)*D**5/120)/Math.cos(fp);
+ return [lat*180/Math.PI,lon*180/Math.PI];
+}
+function geotiffProjection(keys){
+ const code=Number(keys.ProjectedCSTypeGeoKey||keys.GeographicTypeGeoKey);
+ if(code===4326)return {name:'EPSG:4326',convert:(x,y)=>[y,x]};
+ if(code===3857)return {name:'EPSG:3857',convert:(x,y)=>[Math.atan(Math.sinh(y/6378137))*180/Math.PI,x/6378137*180/Math.PI]};
+ let lon0,lat0=0,k0=.9996,falseE=500000,falseN=0,a=6378137,invF=298.257223563;
+ if(code>=32601&&code<=32660){lon0=(code-32600)*6-183;}
+ else if(code>=32701&&code<=32760){lon0=(code-32700)*6-183;falseN=10000000;}
+ else if(code===32767||code===undefined||!code){
+  const ct=Number(keys.ProjCoordTransGeoKey);
+  if(ct!==1)throw Error('Projeção definida pelo usuário: transformação '+ct+' não implementada. Parâmetros: '+JSON.stringify(keys).slice(0,350));
+  const required=['ProjNatOriginLongGeoKey','ProjScaleAtNatOriginGeoKey','ProjFalseEastingGeoKey','ProjFalseNorthingGeoKey'];
+  for(const key of required)if(!Number.isFinite(Number(keys[key])))throw Error('Projeção definida pelo usuário sem '+key);
+  lon0=Number(keys.ProjNatOriginLongGeoKey);lat0=Number(keys.ProjNatOriginLatGeoKey||0);
+  k0=Number(keys.ProjScaleAtNatOriginGeoKey);falseE=Number(keys.ProjFalseEastingGeoKey);falseN=Number(keys.ProjFalseNorthingGeoKey);
+  const ellipsoid=Number(keys.GeogEllipsoidGeoKey||7030);
+  if(ellipsoid!==7030 && ellipsoid!==32767)throw Error('Elipsoide '+ellipsoid+' não suportado');
+  if(ellipsoid===32767){
+   a=Number(keys.GeogSemiMajorAxisGeoKey);
+   invF=Number(keys.GeogInvFlatteningGeoKey);
+   if(!(a>6000000&&a<7000000&&invF>200&&invF<400))throw Error('Elipsoide personalizado incompleto');
+  }
+ }else throw Error('Projeção EPSG:'+code+' não suportada');
+ if(!(k0>0&&k0<2&&Math.abs(lon0)<=180&&Math.abs(lat0)<=90))throw Error('Parâmetros da projeção inválidos');
+ return {name:code===32767?'TM personalizada':'UTM EPSG:'+code,convert:(x,y)=>utmInverse(x,y,lon0*Math.PI/180,lat0*Math.PI/180,k0,falseE,falseN,a,invF)};
+}
 async function openTiff(c){
  try{
   if(!window.GeoTIFF)throw Error('Biblioteca GeoTIFF indisponível no APK');
@@ -60,8 +96,7 @@ async function openTiff(c){
   const res=await fetch(url);if(!res.ok)throw Error('Não foi possível ler o TIFF');
   const buffer=await res.arrayBuffer();
   const tiff=await GeoTIFF.fromArrayBuffer(buffer),image=await tiff.getImage();
-  const keys=image.getGeoKeys(),code=keys.ProjectedCSTypeGeoKey||keys.GeographicTypeGeoKey;
-  if(code!==4326&&code!==3857)throw Error('Projeção EPSG:'+code+' não suportada; arquivo rejeitado');
+  const keys=image.getGeoKeys(),projection=geotiffProjection(keys);
   const fd=image.fileDirectory;
   if(fd.ModelTransformation)throw Error('GeoTIFF com transformação matricial não suportada; rejeitado');
   if(!fd.ModelPixelScale||!fd.ModelTiepoint||fd.ModelTiepoint.length<6)throw Error('GeoTIFF sem georreferenciamento completo');
@@ -70,8 +105,7 @@ async function openTiff(c){
   const left=tie[3]-tie[0]*sx,top=tie[4]+tie[1]*sy;
   const right=left+image.getWidth()*sx,bottom=top-image.getHeight()*sy;
   if(!(sx>0&&sy>0))throw Error('Escala GeoTIFF inválida');
-  const toLatLng=(x,y)=>code===4326?[y,x]:[Math.atan(Math.sinh(y/6378137))*180/Math.PI,x/6378137*180/Math.PI];
-  const nw=toLatLng(left,top),se=toLatLng(right,bottom);
+  const nw=projection.convert(left,top),se=projection.convert(right,bottom);
   if(!nw.concat(se).every(Number.isFinite)||nw[0]<=se[0]||nw[1]>=se[1])throw Error('Limites geográficos inválidos');
   const width=image.getWidth(),height=image.getHeight(),factor=Math.min(1,Math.sqrt(4000000/(width*height)));
   const w=Math.max(1,Math.round(width*factor)),h=Math.max(1,Math.round(height*factor));
@@ -82,7 +116,7 @@ async function openTiff(c){
   ctx.putImageData(pixels,0,0);
   if(tiffLayer)map.removeLayer(tiffLayer);
   tiffLayer=L.imageOverlay(canvas.toDataURL('image/png'),[se,nw],{opacity:.9}).addTo(map);
-  map.fitBounds([se,nw]);$('mapname').textContent=c.name+' · EPSG:'+code;screen('mapScreen');status('GeoTIFF carregado: '+width+' × '+height);
+  map.fitBounds([se,nw]);$('mapname').textContent=c.name+' · '+projection.name;screen('mapScreen');status('GeoTIFF carregado: '+width+' × '+height);
  }catch(e){status('GeoTIFF rejeitado: '+e.message)}
 }
 if(window.L){map=L.map('map',{zoomControl:false}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map)}
