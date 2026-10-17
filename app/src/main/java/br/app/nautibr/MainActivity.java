@@ -24,6 +24,9 @@ public class MainActivity extends Activity {
  private static final String CATALOG="https://www.marinha.mil.br/chm/dados-do-segnav/cartas-raster";
  private WebView web;
  private File charts;
+ private volatile boolean aisRunning=false;
+ private Thread aisThread;
+ private java.net.Socket aisSocket;
  @Override public void onCreate(Bundle state){
   super.onCreate(state);
   charts=new File(getFilesDir(),"charts");charts.mkdirs();
@@ -48,9 +51,61 @@ public class MainActivity extends Activity {
   });
   web.loadUrl("https://nautibr.local/index.html");
  }
+ synchronized void stopAisConnection(){
+  aisRunning=false;
+  try{if(aisSocket!=null)aisSocket.close();}catch(Exception ignored){}
+  aisSocket=null;
+ }
+ @Override protected void onDestroy(){stopAisConnection();super.onDestroy();}
  void callback(String fn,String value){runOnUiThread(()->web.evaluateJavascript(fn+"("+JSONObject.quote(value)+")",null));}
  void status(String s){callback("onStatus",s);}
  public class Bridge{
+  @JavascriptInterface public void stopAIS(){stopAisConnection();}
+  @JavascriptInterface public void connectAIS(String host,int port){
+   stopAisConnection();
+   if(host==null||host.length()>255||!host.matches("[a-zA-Z0-9.:-]+")||port<1||port>65535){callback("onAisStatus","Endereço ou porta inválidos");return;}
+   aisRunning=true;
+   aisThread=new Thread(()->{
+    try{
+     java.net.Socket socket=new java.net.Socket();
+     aisSocket=socket;
+     socket.connect(new java.net.InetSocketAddress(host,port),8000);
+     socket.setSoTimeout(30000);
+     callback("onAisStatus","Receptor AIS conectado: "+host+":"+port);
+     try(BufferedReader br=new BufferedReader(new InputStreamReader(socket.getInputStream(),java.nio.charset.StandardCharsets.US_ASCII))){
+      String line;
+      while(aisRunning&&(line=br.readLine())!=null){
+       if(line.length()>2048)continue;
+       if(line.startsWith("!AIVDM,")||line.startsWith("!AIVDO,")||line.startsWith("!BSVDM,"))
+        callback("onAisSentence",line);
+      }
+     }
+    }catch(Exception e){if(aisRunning)callback("onAisStatus","AIS TCP: "+e.getMessage());}
+    finally{if(aisRunning)callback("onAisStatus","Conexão AIS encerrada");aisRunning=false;}
+   },"ais-tcp");
+   aisThread.start();
+  }
+  @JavascriptInterface public void pollAIS(String url){
+   if(url==null||url.length()>2048||!url.startsWith("https://")){callback("onAisStatus","Use uma URL HTTPS de dados AIS");return;}
+   new Thread(()->{
+    java.net.HttpURLConnection conn=null;
+    try{
+     conn=(java.net.HttpURLConnection)new java.net.URL(url).openConnection();
+     conn.setConnectTimeout(10000);conn.setReadTimeout(15000);
+     conn.setRequestProperty("Accept","application/json, text/plain");
+     conn.setInstanceFollowRedirects(false);
+     int code=conn.getResponseCode();
+     if(code!=200)throw new IOException("HTTP "+code);
+     if(conn.getContentLengthLong()>2_000_000)throw new IOException("Resposta AIS maior que 2 MB");
+     try(InputStream in=conn.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
+      byte[] buf=new byte[8192];int n;
+      while((n=in.read(buf))!=-1){if(out.size()+n>2_000_000)throw new IOException("Resposta AIS maior que 2 MB");out.write(buf,0,n);}
+      callback("onAisInternet",out.toString("UTF-8"));
+     }
+    }catch(Exception e){callback("onAisStatus","AIS internet: "+e.getMessage());}
+    finally{if(conn!=null)conn.disconnect();}
+   },"ais-https").start();
+  }
   @JavascriptInterface public void copyText(String value){runOnUiThread(()->{ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("NautiBR GeoTIFF",value));});}
   @JavascriptInterface public void importCharts(){runOnUiThread(()->{
    Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("*/*");i.addCategory(Intent.CATEGORY_OPENABLE);
