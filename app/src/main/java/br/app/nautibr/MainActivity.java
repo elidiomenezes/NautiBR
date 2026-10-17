@@ -18,6 +18,13 @@ import android.graphics.Bitmap;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.WebSocket;
+import okhttp3.WebSocketListener;
+import okio.ByteString;
+import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends Activity {
  private static final int PICK=42;
@@ -27,6 +34,9 @@ public class MainActivity extends Activity {
  private volatile boolean aisRunning=false;
  private Thread aisThread;
  private java.net.Socket aisSocket;
+ private final OkHttpClient aisHttp=new OkHttpClient.Builder().pingInterval(25,TimeUnit.SECONDS).build();
+ private volatile WebSocket aisWebSocket;
+ private volatile int aisGeneration=0;
  @Override public void onCreate(Bundle state){
   super.onCreate(state);
   charts=new File(getFilesDir(),"charts");charts.mkdirs();
@@ -56,10 +66,64 @@ public class MainActivity extends Activity {
   try{if(aisSocket!=null)aisSocket.close();}catch(Exception ignored){}
   aisSocket=null;
  }
- @Override protected void onDestroy(){stopAisConnection();super.onDestroy();}
+ synchronized void stopAisStream(){
+  aisGeneration++;
+  WebSocket socket=aisWebSocket;aisWebSocket=null;
+  if(socket!=null)socket.close(1000,"Disconnected");
+ }
+ @Override protected void onDestroy(){stopAisConnection();stopAisStream();aisHttp.dispatcher().executorService().shutdown();super.onDestroy();}
  void callback(String fn,String value){runOnUiThread(()->web.evaluateJavascript(fn+"("+JSONObject.quote(value)+")",null));}
  void status(String s){callback("onStatus",s);}
  public class Bridge{
+  @JavascriptInterface public void stopAISStream(){stopAisStream();}
+  @JavascriptInterface public void connectAISStream(String key,double lat,double lon,double radius){
+   if(key==null||key.trim().isEmpty()||key.length()>512||!Double.isFinite(lat)||Math.abs(lat)>90||!Double.isFinite(lon)||Math.abs(lon)>180||!Double.isFinite(radius)||radius<1||radius>300){
+    callback("onAisStatus","AISStream: parâmetros inválidos");return;
+   }
+   stopAisStream();
+   final int generation=aisGeneration;
+   final double dLat=radius/111.32,dLon=radius/(111.32*Math.max(.01,Math.cos(Math.toRadians(lat))));
+   final String apiKey=key.trim();
+   try{
+    JSONArray southWest=new JSONArray().put(Math.max(-90,lat-dLat)).put(Math.max(-180,lon-dLon));
+    JSONArray northEast=new JSONArray().put(Math.min(90,lat+dLat)).put(Math.min(180,lon+dLon));
+    JSONArray box=new JSONArray().put(southWest).put(northEast);
+    JSONObject subscription=new JSONObject()
+     .put("APIKey",apiKey)
+     .put("BoundingBoxes",new JSONArray().put(box))
+     .put("FilterMessageTypes",new JSONArray().put("PositionReport").put("StandardClassBPositionReport").put("ExtendedClassBPositionReport"));
+    Request request=new Request.Builder().url("wss://stream.aisstream.io/v0/stream").build();
+    callback("onAisStatus","AISStream: conectando por WebSocket nativo");
+    aisWebSocket=aisHttp.newWebSocket(request,new WebSocketListener(){
+     @Override public void onOpen(WebSocket socket,Response response){
+      if(generation!=aisGeneration){socket.close(1000,"Superseded");return;}
+      callback("onAisStatus","AISStream: conexão WSS estabelecida (HTTP "+response.code()+")");
+      if(socket.send(subscription.toString()))callback("onAisStatus","AISStream: assinatura enviada; aguardando resposta");
+      else callback("onAisStatus","AISStream: falha ao enviar assinatura");
+     }
+     @Override public void onMessage(WebSocket socket,String message){
+      if(generation==aisGeneration && message.length()<1_000_000)callback("onAisStreamMessage",message);
+     }
+     @Override public void onMessage(WebSocket socket,ByteString bytes){
+      if(generation==aisGeneration && bytes.size()<1_000_000)callback("onAisStreamMessage",bytes.utf8());
+     }
+     @Override public void onClosing(WebSocket socket,int code,String reason){
+      if(generation==aisGeneration)callback("onAisStatus","AISStream: servidor encerrando ("+code+"): "+reason);
+      socket.close(1000,null);
+     }
+     @Override public void onClosed(WebSocket socket,int code,String reason){
+      if(generation==aisGeneration){aisWebSocket=null;callback("onAisStatus","AISStream: encerrado ("+code+"): "+reason);}
+     }
+     @Override public void onFailure(WebSocket socket,Throwable error,Response response){
+      if(generation==aisGeneration){
+       aisWebSocket=null;
+       String reason=error.getClass().getSimpleName()+": "+error.getMessage();
+       callback("onAisStatus","AISStream: falha WSS"+(response==null?"":" HTTP "+response.code())+" — "+reason);
+      }
+     }
+    });
+   }catch(Exception error){callback("onAisStatus","AISStream: "+error.getMessage());}
+  }
   @JavascriptInterface public void stopAIS(){stopAisConnection();}
   @JavascriptInterface public void connectAIS(String host,int port){
    stopAisConnection();
