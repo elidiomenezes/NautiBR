@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR · build 38</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 39</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="Native.openNavy()">Site da Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Mapa de Santos</div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -75,13 +75,28 @@ function openKap(c){
  try{
   if(kapLayer)map.removeLayer(kapLayer);
   const corners=c.corners.map(p=>L.latLng(p[0],p[1])),bounds=L.latLngBounds(corners);
-  const img=document.createElement('img');img.src='https://nautibr.local/chart?id='+encodeURIComponent(c.id);
-  img.style.cssText='position:absolute;left:0;top:0;max-width:none;max-height:none;transform-origin:0 0;pointer-events:none;opacity:1;image-rendering:auto';
-  map.getPane('overlayPane').append(img);
-  function redraw(){if(!img.naturalWidth)return;const a=map.latLngToLayerPoint(corners[0]),b=map.latLngToLayerPoint(corners[1]),d=map.latLngToLayerPoint(corners[2]);img.style.transform='matrix('+((b.x-a.x)/img.naturalWidth)+','+((b.y-a.y)/img.naturalWidth)+','+((d.x-a.x)/img.naturalHeight)+','+((d.y-a.y)/img.naturalHeight)+','+a.x+','+a.y+')'}
-  img.onload=redraw;map.on('zoomend moveend viewreset resize',redraw);
-  kapLayer=L.layerGroup().addTo(map);kapLayer.on('remove',()=>{map.off('zoomend moveend viewreset resize',redraw);img.remove()});
-  map.fitBounds(bounds);$('mapname').textContent=c.name+' · RMS '+c.rmsPixels.toFixed(2)+' px';screen('mapScreen');
+  const nativeW=c.originalWidth||c.previewWidth,nativeH=c.originalHeight||c.previewHeight;
+  const tiles=Array.isArray(c.tiles)&&c.tiles.length?c.tiles:[{id:c.id,x:0,y:0,w:nativeW,h:nativeH}];
+  const images=[];
+  for(const tile of tiles){
+   const img=document.createElement('img');
+   img.src='https://nautibr.local/chart?id='+encodeURIComponent(tile.id);
+   img.width=tile.w;img.height=tile.h;
+   img.style.cssText='position:absolute;left:0;top:0;max-width:none;max-height:none;transform-origin:0 0;pointer-events:none;opacity:1';
+   map.getPane('overlayPane').append(img);images.push({img,tile});
+  }
+  function redraw(){
+   const a=map.latLngToLayerPoint(corners[0]),b=map.latLngToLayerPoint(corners[1]),d=map.latLngToLayerPoint(corners[2]);
+   const m11=(b.x-a.x)/nativeW,m12=(b.y-a.y)/nativeW,m21=(d.x-a.x)/nativeH,m22=(d.y-a.y)/nativeH;
+   for(const {img,tile} of images){
+    const x=a.x+m11*tile.x+m21*tile.y,y=a.y+m12*tile.x+m22*tile.y;
+    img.style.transform='matrix('+m11+','+m12+','+m21+','+m22+','+x+','+y+')';
+   }
+  }
+  map.on('zoomend moveend viewreset resize',redraw);
+  kapLayer=L.layerGroup().addTo(map);
+  kapLayer.on('remove',()=>{map.off('zoomend moveend viewreset resize',redraw);for(const {img} of images)img.remove()});
+  map.fitBounds(bounds);redraw();$('mapname').textContent=c.name+' · RMS '+Number(c.rmsPixels||0).toFixed(2)+' px';screen('mapScreen');
  }catch(e){status('KAP: '+e.message)}
 }
 function utmInverse(easting,northing,lon0,lat0,k0,falseE,falseN,a,invF){
