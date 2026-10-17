@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR · build 40</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 41</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="Native.openNavy()">Site da Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Mapa de Santos</div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -19,7 +19,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <button onclick="Native.importGeo()">Importar GeoJSON ou ZIP</button>
 <h4>Cartas KAP</h4><div id="kapfiles"></div><h4>GeoTIFF</h4><div id="tifffiles"></div><div id="diagnostic" style="display:none;border:1px solid #456579;padding:10px;margin-top:10px;border-radius:8px"><strong>Diagnóstico GeoTIFF</strong><textarea id="diagnosticText" readonly style="width:100%;height:220px;margin-top:8px;background:#09141d;color:#e7f0f7;font:12px monospace"></textarea><button onclick="copyDiagnostic()">Copiar diagnóstico</button></div><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
 <p class="warning">GeoTIFF: EPSG:4326, EPSG:3857, UTM WGS84, Mercator personalizada e Transversa de Mercator personalizada com parâmetros completos, sem rotação, nesta versão. Formatos incompatíveis são rejeitados. O decodificador e as cartas importadas funcionam offline. O mapa-base OpenStreetMap exige internet; sem ela, as cartas continuam visíveis sobre o fundo do mapa.</p></section>
-<div id="status"></div>
+<div id="status"></div><div id="decodeProgress" style="display:none;padding:10px 14px;background:#162b3b"><div id="decodeLabel">Preparando GeoTIFF...</div><progress id="decodeBar" max="100" value="0" style="width:100%;height:16px"></progress><button id="decodeCancel" onclick="cancelTiff()">Cancelar</button></div>
 <script>
 const $=id=>document.getElementById(id);let map,geoLayer,kapLayer,tiffLayer;
 function status(s){$('status').textContent=s}
@@ -149,36 +149,67 @@ function geotiffProjection(keys){
  if(!(k0>0&&k0<2&&Math.abs(lon0)<=180&&Math.abs(lat0)<=90))throw Error('Parâmetros da projeção inválidos');
  return {name:code===32767?'TM personalizada':'UTM EPSG:'+code,convert:(x,y)=>utmInverse(x,y,lon0*Math.PI/180,lat0*Math.PI/180,k0,falseE,falseN,a,invF)};
 }
+let activeTiffWorker=null;
+function cancelTiff(){
+ if(activeTiffWorker){activeTiffWorker.terminate();activeTiffWorker=null;}
+ $('decodeProgress').style.display='none';status('Decodificação cancelada');
+}
 async function openTiff(c){
+ cancelTiff();
+ const progress=$('decodeProgress'),bar=$('decodeBar'),label=$('decodeLabel');
+ progress.style.display='block';bar.value=0;label.textContent='Lendo arquivo GeoTIFF...';
  try{
-  if(!window.GeoTIFF)throw Error('Biblioteca GeoTIFF indisponível no APK');
-  status('Decodificando GeoTIFF...');
+  if(!window.Worker)throw Error('Web Worker não suportado nesta versão do Android');
+  const worker=new Worker('/vendor/tiff-worker.js');
+  activeTiffWorker=worker;
+  let meta=null,layers=[],done=0;
+  worker.onerror=e=>{if(activeTiffWorker===worker){status('Falha na thread GeoTIFF: '+(e.message||'erro desconhecido'));progress.style.display='none';worker.terminate();activeTiffWorker=null}};
+  worker.onmessage=e=>{
+   if(activeTiffWorker!==worker)return;
+   const d=e.data;
+   try{
+    if(d.type==='metadata'){
+     const projection=geotiffProjection(d.keys);
+     if(d.transformation)throw Error('Transformação matricial ainda não suportada');
+     if(!d.scale||!d.tie||d.tie.length<6)throw Error('Georreferenciamento incompleto');
+     const [sx,sy]=d.scale,tie=d.tie;
+     if(!(sx>0&&sy>0))throw Error('Escala inválida');
+     const left=tie[3]-tie[0]*sx,top=tie[4]+tie[1]*sy;
+     meta={projection,left,top,sx,sy,width:d.width,height:d.height,name:c.name};
+     const nw=projection.convert(left,top),se=projection.convert(left+d.width*sx,top-d.height*sy);
+     if(!nw.concat(se).every(Number.isFinite)||nw[0]<=se[0]||nw[1]>=se[1])throw Error('Limites geográficos inválidos');
+     if(tiffLayer)map.removeLayer(tiffLayer);
+     tiffLayer=L.layerGroup().addTo(map);
+     map.fitBounds([se,nw]);screen('mapScreen');
+     $('mapname').textContent=c.name+' · '+projection.name;
+     label.textContent='Decodificando blocos em segundo plano...';
+    }else if(d.type==='tile'){
+     if(!meta)return;
+     const canvas=document.createElement('canvas');canvas.width=d.w;canvas.height=d.h;
+     const ctx=canvas.getContext('2d');
+     ctx.putImageData(new ImageData(new Uint8ClampedArray(d.rgba),d.w,d.h),0,0);
+     const nw=meta.projection.convert(meta.left+d.x*meta.sx,meta.top-d.y*meta.sy);
+     const se=meta.projection.convert(meta.left+(d.x+d.w)*meta.sx,meta.top-(d.y+d.h)*meta.sy);
+     L.imageOverlay(canvas.toDataURL('image/png'),[se,nw],{opacity:1,interactive:false}).addTo(tiffLayer);
+     bar.value=Math.round(100*d.done/d.total);label.textContent='GeoTIFF: '+d.done+' / '+d.total+' blocos ('+bar.value+'%)';
+    }else if(d.type==='complete'){
+     label.textContent='GeoTIFF carregado: '+d.total+' blocos';bar.value=100;
+     status('GeoTIFF carregado: '+meta.width+' × '+meta.height+' · '+meta.projection.name);
+     worker.terminate();activeTiffWorker=null;progress.style.display='none';
+    }else if(d.type==='error'){throw Error(d.message)}
+   }catch(err){
+    status('Erro GeoTIFF: '+err.message);
+    label.textContent='Falha: '+err.message;
+    worker.terminate();activeTiffWorker=null;
+   }
+  };
   const url='https://nautibr.local/chart?id='+encodeURIComponent(c.id);
-  const res=await fetch(url);if(!res.ok)throw Error('Não foi possível ler o TIFF');
+  const res=await fetch(url);if(!res.ok)throw Error('Falha ao ler GeoTIFF');
   const buffer=await res.arrayBuffer();
-  const tiff=await GeoTIFF.fromArrayBuffer(buffer),image=await tiff.getImage();
-  const keys=image.getGeoKeys(),projection=geotiffProjection(keys);
-  const fd=image.fileDirectory;
-  if(fd.ModelTransformation)throw Error('GeoTIFF com transformação matricial não suportada; rejeitado');
-  if(!fd.ModelPixelScale||!fd.ModelTiepoint||fd.ModelTiepoint.length<6)throw Error('GeoTIFF sem georreferenciamento completo');
-  const [sx,sy]=fd.ModelPixelScale;
-  const tie=fd.ModelTiepoint;
-  const left=tie[3]-tie[0]*sx,top=tie[4]+tie[1]*sy;
-  const right=left+image.getWidth()*sx,bottom=top-image.getHeight()*sy;
-  if(!(sx>0&&sy>0))throw Error('Escala GeoTIFF inválida');
-  const nw=projection.convert(left,top),se=projection.convert(right,bottom);
-  if(!nw.concat(se).every(Number.isFinite)||nw[0]<=se[0]||nw[1]>=se[1])throw Error('Limites geográficos inválidos');
-  const width=image.getWidth(),height=image.getHeight(),factor=Math.min(1,Math.sqrt(4000000/(width*height)));
-  const w=Math.max(1,Math.round(width*factor)),h=Math.max(1,Math.round(height*factor));
-  const rgb=await image.readRGB({width:w,height:h,interleave:true});
-  const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
-  const ctx=canvas.getContext('2d'),pixels=ctx.createImageData(w,h);
-  for(let i=0,j=0;i<rgb.length;i+=3,j+=4){pixels.data[j]=rgb[i];pixels.data[j+1]=rgb[i+1];pixels.data[j+2]=rgb[i+2];pixels.data[j+3]=255}
-  ctx.putImageData(pixels,0,0);
-  if(tiffLayer)map.removeLayer(tiffLayer);
-  tiffLayer=L.imageOverlay(canvas.toDataURL('image/png'),[se,nw],{opacity:.9}).addTo(map);
-  map.fitBounds([se,nw]);$('mapname').textContent=c.name+' · '+projection.name;screen('mapScreen');status('GeoTIFF carregado: '+width+' × '+height);
- }catch(e){status('GeoTIFF rejeitado: '+e.message)}
+  if(activeTiffWorker!==worker)return;
+  label.textContent='Iniciando decodificação em thread...';
+  worker.postMessage({type:'decode',buffer},[buffer]);
+ }catch(e){status('GeoTIFF: '+e.message);progress.style.display='none';if(activeTiffWorker){activeTiffWorker.terminate();activeTiffWorker=null}}
 }
 if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:false,fadeAnimation:false,markerZoomAnimation:false,preferCanvas:true}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map)}
 else status('Falha ao carregar Leaflet incluído no APK');
