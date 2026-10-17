@@ -17,7 +17,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <p>Selecione KAP/BSB, GeoTIFF (.tif/.tiff), GeoJSON ou ZIP contendo esses formatos.</p>
 <button onclick="Native.importCharts()">Importar KAP, GeoTIFF ou ZIP</button>
 <button onclick="Native.importGeo()">Importar GeoJSON ou ZIP</button>
-<h4>Cartas KAP</h4><div id="kapfiles"></div><h4>GeoTIFF</h4><div id="tifffiles"></div><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
+<h4>Cartas KAP</h4><div id="kapfiles"></div><h4>GeoTIFF</h4><div id="tifffiles"></div><div id="diagnostic" style="display:none;border:1px solid #456579;padding:10px;margin-top:10px;border-radius:8px"><strong>Diagnóstico GeoTIFF</strong><textarea id="diagnosticText" readonly style="width:100%;height:220px;margin-top:8px;background:#09141d;color:#e7f0f7;font:12px monospace"></textarea><button onclick="copyDiagnostic()">Copiar diagnóstico</button></div><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
 <p class="warning">GeoTIFF: EPSG:4326, EPSG:3857, UTM WGS84 e Transversa de Mercator personalizada com parâmetros completos, sem rotação, nesta versão. Formatos incompatíveis são rejeitados. O decodificador e as cartas importadas funcionam offline. O mapa-base OpenStreetMap exige internet; sem ela, as cartas continuam visíveis sobre o fundo do mapa.</p></section>
 <div id="status"></div>
 <script>
@@ -36,7 +36,40 @@ function refresh(){
 }
 function onCharts(s){
  $('tifffiles').replaceChildren();
- try{for(const c of JSON.parse(s).filter(x=>/\.tiff?$/i.test(x.id)))makeRow('tifffiles',c.name,()=>openTiff(c))}catch(e){status(e.message)}
+ try{for(const c of JSON.parse(s).filter(x=>/\\.tiff?$/i.test(x.id))){
+  const row=document.createElement('div'),label=document.createElement('span'),show=document.createElement('button'),diag=document.createElement('button');
+  row.className='file';label.textContent=c.name;show.textContent='Mapa';diag.textContent='Diagnóstico';
+  show.onclick=()=>openTiff(c);diag.onclick=()=>diagnoseTiff(c);
+  row.append(label,show,diag);$('tifffiles').append(row);
+ }}catch(e){status(e.message)}
+}
+async function diagnoseTiff(c){
+ const panel=$('diagnostic'),output=$('diagnosticText');panel.style.display='block';output.value='Lendo metadados...';status('Extraindo metadados sem decodificar a imagem');
+ try{
+  const url='https://nautibr.local/chart?id='+encodeURIComponent(c.id);
+  const tiff=await GeoTIFF.fromUrl(url),image=await tiff.getImage();
+  const fd=image.fileDirectory;
+  const metadata={
+   file:c.name,dimensions:[image.getWidth(),image.getHeight()],
+   geoKeys:image.getGeoKeys(),
+   modelPixelScale:fd.ModelPixelScale||null,
+   modelTiepoint:fd.ModelTiepoint||null,
+   modelTransformation:fd.ModelTransformation||null,
+   geoAsciiParams:fd.GeoAsciiParams||null,
+   geoDoubleParams:fd.GeoDoubleParams||null,
+   compression:fd.Compression||null,
+   sampleFormat:fd.SampleFormat||null,
+   photometricInterpretation:fd.PhotometricInterpretation||null,
+   software:fd.Software||null
+  };
+  output.value=JSON.stringify(metadata,null,2);status('Diagnóstico pronto; copie o texto abaixo');
+ }catch(e){output.value='Erro no diagnóstico: '+e.message;status(output.value)}
+}
+function copyDiagnostic(){
+ const value=$('diagnosticText').value;
+ if(window.Native&&Native.copyText){Native.copyText(value);status('Diagnóstico copiado');return}
+ $('diagnosticText').focus();$('diagnosticText').select();
+ document.execCommand('copy');status('Diagnóstico selecionado e copiado');
 }
 function openGeo(c){try{const json=JSON.parse(Native.readGeo(c.id));if(geoLayer)map.removeLayer(geoLayer);geoLayer=L.geoJSON(json).addTo(map);if(geoLayer.getBounds().isValid())map.fitBounds(geoLayer.getBounds());$('mapname').textContent=c.name;screen('mapScreen')}catch(e){status(e.message)}}
 function openKap(c){
