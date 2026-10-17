@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR · build 41</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 42</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="Native.openNavy()">Site da Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Mapa de Santos</div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -150,19 +150,31 @@ function geotiffProjection(keys){
  return {name:code===32767?'TM personalizada':'UTM EPSG:'+code,convert:(x,y)=>utmInverse(x,y,lon0*Math.PI/180,lat0*Math.PI/180,k0,falseE,falseN,a,invF)};
 }
 let activeTiffWorker=null;
+const tiffCache=new Map();
+let currentTiffId=null;
 function cancelTiff(){
  if(activeTiffWorker){activeTiffWorker.terminate();activeTiffWorker=null;}
  $('decodeProgress').style.display='none';status('Decodificação cancelada');
 }
 async function openTiff(c){
- cancelTiff();
+ if(tiffCache.has(c.id)){
+  cancelTiff();
+  const cached=tiffCache.get(c.id);
+  if(tiffLayer)map.removeLayer(tiffLayer);
+  tiffLayer=cached.layer.addTo(map);currentTiffId=c.id;
+  map.fitBounds(cached.bounds);screen("mapScreen");
+  $("mapname").textContent=c.name+" · "+cached.projection;
+  status("GeoTIFF recuperado da memória, sem nova decodificação");return;
+ }
+ if(activeTiffWorker&&currentTiffId===c.id){screen("mapScreen");status("Decodificação em andamento");return;}
+ cancelTiff();currentTiffId=c.id;
  const progress=$('decodeProgress'),bar=$('decodeBar'),label=$('decodeLabel');
  progress.style.display='block';bar.value=0;label.textContent='Lendo arquivo GeoTIFF...';
  try{
   if(!window.Worker)throw Error('Web Worker não suportado nesta versão do Android');
   const worker=new Worker('/vendor/tiff-worker.js');
   activeTiffWorker=worker;
-  let meta=null,layers=[],done=0;
+  let meta=null,bounds=null;
   worker.onerror=e=>{if(activeTiffWorker===worker){status('Falha na thread GeoTIFF: '+(e.message||'erro desconhecido'));progress.style.display='none';worker.terminate();activeTiffWorker=null}};
   worker.onmessage=e=>{
    if(activeTiffWorker!==worker)return;
@@ -177,10 +189,11 @@ async function openTiff(c){
      const left=tie[3]-tie[0]*sx,top=tie[4]+tie[1]*sy;
      meta={projection,left,top,sx,sy,width:d.width,height:d.height,name:c.name};
      const nw=projection.convert(left,top),se=projection.convert(left+d.width*sx,top-d.height*sy);
-     if(!nw.concat(se).every(Number.isFinite)||nw[0]<=se[0]||nw[1]>=se[1])throw Error('Limites geográficos inválidos');
+     if(!nw.concat(se).every(Number.isFinite)||nw[0]<=se[0]||nw[1]>=se[1])throw Error("Limites geográficos inválidos");
+     bounds=[se,nw];
      if(tiffLayer)map.removeLayer(tiffLayer);
      tiffLayer=L.layerGroup().addTo(map);
-     map.fitBounds([se,nw]);screen('mapScreen');
+     map.fitBounds(bounds);screen('mapScreen');
      $('mapname').textContent=c.name+' · '+projection.name;
      label.textContent='Decodificando blocos em segundo plano...';
     }else if(d.type==='tile'){
@@ -194,7 +207,8 @@ async function openTiff(c){
      bar.value=Math.round(100*d.done/d.total);label.textContent='GeoTIFF: '+d.done+' / '+d.total+' blocos ('+bar.value+'%)';
     }else if(d.type==='complete'){
      label.textContent='GeoTIFF carregado: '+d.total+' blocos';bar.value=100;
-     status('GeoTIFF carregado: '+meta.width+' × '+meta.height+' · '+meta.projection.name);
+     tiffCache.set(c.id,{layer:tiffLayer,bounds,projection:meta.projection.name});
+     status('GeoTIFF carregado e mantido em memória: '+meta.width+' × '+meta.height+' · '+meta.projection.name);
      worker.terminate();activeTiffWorker=null;progress.style.display='none';
     }else if(d.type==='error'){throw Error(d.message)}
    }catch(err){
