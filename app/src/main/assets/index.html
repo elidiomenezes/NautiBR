@@ -8,9 +8,9 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 255px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:5px}#mapScreen>div:nth-of-type(3){flex-wrap:wrap}#mapScreen>div:nth-of-type(3) button{flex:1;min-width:90px}</style></head>
-<body><header><strong>NautiBR · build 63</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 64</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
-<section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div>
+<section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div><div id="ownStatus" style="font-size:12px;padding:5px 0">GPS: aguardando posição</div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
 <p class="warning">Visualizador experimental. Não usar para navegação real.</p></section>
 <section class="screen" id="importScreen"><h3>Importar cartas</h3>
@@ -119,6 +119,58 @@ function kapImage(id){
 }
 let kapBounds=null;
 function fitKap(){let bounds=null;for(const e of chartLayers.values())if(map.hasLayer(e.layer)&&e.bounds.isValid())bounds=bounds?bounds.extend(e.bounds):L.latLngBounds(e.bounds);if(bounds)map.fitBounds(bounds);else map.setView([-23.96,-46.3],11)}
+// Own-vessel GPS, COG/SOG vector and minute-by-minute graticule.
+let ownMarker=null,ownVector=null,ownAccuracy=null,ownLast=null,graticule=null;
+function onOwnLocation(raw){
+ try{
+  const d=JSON.parse(raw),lat=Number(d.lat),lon=Number(d.lon);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return;
+  ownLast=d;
+  if(!map)return;
+  const point=[lat,lon],course=Number(d.course),knots=Number(d.speed);
+  if(!ownMarker){
+   ownMarker=L.circleMarker(point,{radius:8,color:'#fff',weight:2,fillColor:'#0078ff',fillOpacity:1}).addTo(map);
+   ownVector=L.polyline([],{color:'#0078ff',weight:3,opacity:.95}).addTo(map);
+   ownAccuracy=L.circle(point,{radius:0,color:'#0078ff',weight:1,fillOpacity:.05}).addTo(map);
+  }
+  ownMarker.setLatLng(point);
+  ownAccuracy.setLatLng(point).setRadius(Number.isFinite(Number(d.accuracy))?Math.max(0,Number(d.accuracy)):0);
+  // Six-minute prediction at constant course/speed, not a planned route.
+  if(d.course!==null&&d.speed!==null&&Number.isFinite(course)&&Number.isFinite(knots)&&knots>=0){
+   const distance=knots*6/60*1852,brg=course*Math.PI/180,R=6371000;
+   const phi=lat*Math.PI/180,lambda=lon*Math.PI/180,delta=distance/R;
+   const phi2=Math.asin(Math.sin(phi)*Math.cos(delta)+Math.cos(phi)*Math.sin(delta)*Math.cos(brg));
+   const lambda2=lambda+Math.atan2(Math.sin(brg)*Math.sin(delta)*Math.cos(phi),Math.cos(delta)-Math.sin(phi)*Math.sin(phi2));
+   ownVector.setLatLngs([point,[phi2*180/Math.PI,lambda2*180/Math.PI]]);
+  }else ownVector.setLatLngs([]);
+  const sog=d.speed===null?'—':knots.toFixed(1)+' kn';
+  const cog=d.course===null?'—':course.toFixed(0)+'°';
+  $('ownStatus').textContent='GPS: '+lat.toFixed(5)+'°, '+lon.toFixed(5)+'° · Rumo (COG) '+cog+' · Velocidade (SOG) '+sog+' · vetor 6 min';
+  ownMarker.bindTooltip('Sua posição · COG '+cog+' · SOG '+sog);
+ }catch(e){status('GPS: '+e.message)}
+}
+function updateGraticule(){
+ if(!map)return;
+ if(graticule)map.removeLayer(graticule);
+ graticule=L.layerGroup().addTo(map);
+ const b=map.getBounds(),south=b.getSouth(),north=b.getNorth(),west=b.getWest(),east=b.getEast();
+ const latStart=Math.ceil(south*60),latEnd=Math.floor(north*60);
+ const lonStart=Math.ceil(west*60),lonEnd=Math.floor(east*60);
+ const total=latEnd-latStart+lonEnd-lonStart+2;
+ if(total>150)return;
+ const fmt=(v,lat)=>{const a=Math.abs(v),deg=Math.floor(a),min=(a-deg)*60;
+  return deg+'°'+min.toFixed(0).padStart(2,'0')+'′'+(lat?(v<0?'S':'N'):(v<0?'W':'E'))};
+ for(let i=latStart;i<=latEnd;i++){
+  const v=i/60;
+  L.polyline([[v,west],[v,east]],{color:'#416779',weight:1,opacity:.5,interactive:false}).addTo(graticule);
+  L.marker([v,west],{icon:L.divIcon({className:'',html:'<span style="font:10px monospace;color:#173847;background:#ffffffb8">'+fmt(v,true)+'</span>',iconSize:[55,14]}) ,interactive:false}).addTo(graticule);
+ }
+ for(let i=lonStart;i<=lonEnd;i++){
+  const v=i/60;
+  L.polyline([[south,v],[north,v]],{color:'#416779',weight:1,opacity:.5,interactive:false}).addTo(graticule);
+  L.marker([south,v],{icon:L.divIcon({className:'',html:'<span style="font:10px monospace;color:#173847;background:#ffffffb8">'+fmt(v,false)+'</span>',iconSize:[55,14]}),interactive:false}).addTo(graticule);
+ }
+}
 function openKap(c,focus=true){
  try{
   const id="kap:"+c.id;
@@ -154,13 +206,35 @@ function openKap(c,focus=true){
      img.style.width=t.w+'px';img.style.height=t.h+'px';
      return img;
     });
+    this._preview=null;
+    const maxDim=1024,ratio=Math.min(1,maxDim/Math.max(nativeW,nativeH));
+    const preview=document.createElement('canvas');
+    preview.width=Math.max(1,Math.ceil(nativeW*ratio));
+    preview.height=Math.max(1,Math.ceil(nativeH*ratio));
+    preview.style.cssText='position:absolute;left:0;top:0;width:'+nativeW+'px;height:'+nativeH+'px;display:none;pointer-events:none;';
+    const ctx=preview.getContext('2d');
+    let remaining=this._images.length,ready=0;
+    for(let i=0;i<this._images.length;i++){
+     const img=this._images[i],t=tiles[i];
+     const done=()=>{
+      if(img.naturalWidth>0&&ctx){ctx.drawImage(img,t.x*ratio,t.y*ratio,t.w*ratio,t.h*ratio);ready++}
+      remaining--;
+      if(remaining===0&&ready>0){this._container.appendChild(preview);this._preview=preview}
+     };
+     if(img.complete)done();
+     else{img.addEventListener('load',done,{once:true});img.addEventListener('error',done,{once:true})}
+    }
+    m.on('zoomstart',this._beginZoom,this);
     m.on('zoomanim',this._animateZoom,this);
-    m.on('zoomend viewreset moveend',this._position,this);
+    m.on('zoomend',this._endZoom,this);
+    m.on('viewreset moveend',this._position,this);
     this._position();
    },
    onRemove(m){
+    m.off('zoomstart',this._beginZoom,this);
     m.off('zoomanim',this._animateZoom,this);
-    m.off('zoomend viewreset moveend',this._position,this);
+    m.off('zoomend',this._endZoom,this);
+    m.off('viewreset moveend',this._position,this);
     L.DomUtil.remove(this._container);
     this._images=[];
     this._map=null;
@@ -172,6 +246,16 @@ function openKap(c,focus=true){
     const el=this._container;
     el.style.transition=animate?'transform 250ms cubic-bezier(0,0,0.25,1)':'none';
     el.style.transform='matrix('+[a,b,c,d,p0.x,p0.y].join(',')+')';
+   },
+   _beginZoom(){
+    if(!this._preview)return;
+    this._preview.style.display="block";
+    for(const img of this._images)img.style.visibility="hidden";
+   },
+   _endZoom(){
+    this._position();
+    if(this._preview)this._preview.style.display="none";
+    for(const img of this._images)img.style.visibility="";
    },
    _animateZoom(e){
     if(!this._map)return;
@@ -346,7 +430,7 @@ function renderAis(){
  $('aisCount').textContent=count+' alvos na última hora · '+aisMessagesReceived+' mensagens / '+aisPositionsReceived+' posições recebidas';
 }
 setInterval(()=>{if(aisTargets.size)renderAis()},30000);
-if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:true,fadeAnimation:false,markerZoomAnimation:true,preferCanvas:true,maxZoom:24}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:24,maxNativeZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map)}
+if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:true,fadeAnimation:false,markerZoomAnimation:true,preferCanvas:true,maxZoom:24}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:24,maxNativeZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);map.on('moveend zoomend',updateGraticule);updateGraticule()}
 else status('Falha ao carregar Leaflet incluído no APK');
 try{
  $('aisKey').value=localStorage.getItem('aisStreamKey')||'';
