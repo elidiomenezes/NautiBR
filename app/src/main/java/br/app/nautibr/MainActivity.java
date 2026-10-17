@@ -170,10 +170,14 @@ public class MainActivity extends Activity {
    }catch(Exception ignored){}}
    if(line.startsWith("REF/")){String[] a=line.substring(4).split(",");if(a.length>=5)try{refs.add(new double[]{Double.parseDouble(a[1]),Double.parseDouble(a[2]),Double.parseDouble(a[3]),Double.parseDouble(a[4])});}catch(Exception ignored){}}
   }
-  if(width<1||height<1||((long)width*height)>24_000_000L)throw new IOException("Dimensões KAP não suportadas: "+width+"x"+height);
+  if(width<1||height<1||width>50000||height>50000)throw new IOException("Dimensões KAP não suportadas: "+width+"x"+height);
   int depth=input.read();if(depth<1||depth>7)throw new IOException("Profundidade KAP inválida: "+depth);
-  Bitmap bmp=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888);
-  int[] row=new int[width];
+  // Decode the complete RLE stream, but retain only a bounded-resolution preview.
+  // Original REF pixel coordinates remain unchanged for geographic fitting.
+  int stride=Math.max(1,(int)Math.ceil(Math.sqrt((double)width*height/12_000_000.0)));
+  int outWidth=(width+stride-1)/stride,outHeight=(height+stride-1)/stride;
+  Bitmap bmp=Bitmap.createBitmap(outWidth,outHeight,Bitmap.Config.ARGB_8888);
+  int[] row=new int[width],reduced=new int[outWidth];
   for(int y=0;y<height;y++){
    int line=0,b;
    do{b=input.read();if(b<0)throw new EOFException("KAP truncado");line=(line<<7)|(b&127);}while((b&128)!=0);
@@ -188,7 +192,10 @@ public class MainActivity extends Activity {
     Arrays.fill(row,x,x+length,palette[Math.min(index,127)]);x+=length;
    }
    if(x!=width)throw new IOException("Linha KAP incompleta: "+y+" ("+x+"/"+width+")");
-   bmp.setPixels(row,0,width,0,y,width,1);
+   if(y%stride==0){
+    for(int ox=0;ox<outWidth;ox++)reduced[ox]=row[Math.min(width-1,ox*stride)];
+    bmp.setPixels(reduced,0,outWidth,0,y/stride,outWidth,1);
+   }
   }
   if(refs.size()<4)throw new IOException("KAP exige ao menos 4 pontos REF para validação");
   // Fit a full 2-D affine transform from pixel coordinates to spherical Mercator.
@@ -227,6 +234,7 @@ public class MainActivity extends Activity {
   File png=new File(charts,id+".png");
   try(OutputStream out=new FileOutputStream(png)){if(!bmp.compress(Bitmap.CompressFormat.PNG,95,out))throw new IOException("Falha PNG");}finally{bmp.recycle();}
   JSONObject meta=new JSONObject();meta.put("id",id+".png");meta.put("name",name);meta.put("corners",corners);
+  meta.put("originalWidth",width);meta.put("originalHeight",height);meta.put("previewWidth",outWidth);meta.put("previewHeight",outHeight);
   meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);
   try(OutputStream out=new FileOutputStream(new File(charts,id+".kap.json"))){out.write(meta.toString().getBytes("UTF-8"));}
  }
