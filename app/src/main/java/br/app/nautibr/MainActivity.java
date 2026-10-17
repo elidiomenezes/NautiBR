@@ -31,6 +31,7 @@ public class MainActivity extends Activity {
    @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest req){
     Uri uri=req.getUrl();
     if(!"nautibr.local".equals(uri.getHost()))return super.shouldInterceptRequest(view,req);
+    if(uri.getPath()!=null && uri.getPath().startsWith("/vendor/"))try{String filename=uri.getPath().substring(1);String mime=filename.endsWith(".css")?"text/css":"application/javascript";return new WebResourceResponse(mime,"UTF-8",getAssets().open(filename));}catch(Exception e){return null;}
     if("/index.html".equals(uri.getPath()))try{return new WebResourceResponse("text/html","UTF-8",getAssets().open("index.html"));}catch(Exception e){return null;}
     if(!"/chart".equals(uri.getPath()))return null;
     try{
