@@ -39,7 +39,7 @@ public class MainActivity extends Activity {
     if(!"/chart".equals(uri.getPath()))return null;
     try{
      String id=uri.getQueryParameter("id");
-     if(id==null||!id.matches("[0-9a-f]{32}\\.(png|jpg|jpeg|webp|tif|tiff)"))return null;
+     if(id==null||!id.matches("[0-9a-f]{32}(?:_[0-9]+_[0-9]+)?\\.(png|jpg|jpeg|webp|tif|tiff)"))return null;
      File file=new File(charts,id);
      String type=id.endsWith(".png")?"image/png":id.endsWith(".webp")?"image/webp":(id.endsWith(".tif")||id.endsWith(".tiff"))?"image/tiff":"image/jpeg";
      return new WebResourceResponse(type,null,new FileInputStream(file));
@@ -172,31 +172,49 @@ public class MainActivity extends Activity {
   }
   if(width<1||height<1||width>50000||height>50000)throw new IOException("Dimensões KAP não suportadas: "+width+"x"+height);
   int depth=input.read();if(depth<1||depth>7)throw new IOException("Profundidade KAP inválida: "+depth);
-  // Decode the complete RLE stream, but retain only a bounded-resolution preview.
-  // Original REF pixel coordinates remain unchanged for geographic fitting.
-  int stride=Math.max(1,(int)Math.ceil(Math.sqrt((double)width*height/12_000_000.0)));
-  int outWidth=(width+stride-1)/stride,outHeight=(height+stride-1)/stride;
-  Bitmap bmp=Bitmap.createBitmap(outWidth,outHeight,Bitmap.Config.ARGB_8888);
-  int[] row=new int[width],reduced=new int[outWidth];
-  for(int y=0;y<height;y++){
-   int line=0,b;
-   do{b=input.read();if(b<0)throw new EOFException("KAP truncado");line=(line<<7)|(b&127);}while((b&128)!=0);
-   int x=0;
-   while(true){
-    b=input.read();if(b<0)throw new EOFException("KAP truncado na linha "+y);
-    if(b==0)break;
-    int index=(b&127)>>(7-depth),length=b&((1<<(7-depth))-1);
-    while((b&128)!=0){b=input.read();if(b<0)throw new EOFException();length=(length<<7)|(b&127);}
-    length++;
-    if(x+length>width)throw new IOException("KAP RLE excede largura");
-    Arrays.fill(row,x,x+length,palette[Math.min(index,127)]);x+=length;
+  // Keep native resolution by encoding independent 1024 x 512 PNG tiles.
+  // Never allocate a full-size bitmap, even for large Navy charts.
+  final int tileW=1024,tileH=512;
+  String id=UUID.randomUUID().toString().replace("-","");
+  JSONArray tiles=new JSONArray();
+  int[] row=new int[width];
+  int tileCols=(width+tileW-1)/tileW;
+  Bitmap[] strip=new Bitmap[tileCols];
+  for(int tx=0;tx<tileCols;tx++)strip[tx]=Bitmap.createBitmap(Math.min(tileW,width-tx*tileW),tileH,Bitmap.Config.ARGB_8888);
+  try{
+   for(int y=0;y<height;y++){
+    int line=0,b;
+    do{b=input.read();if(b<0)throw new EOFException("KAP truncado");line=(line<<7)|(b&127);}while((b&128)!=0);
+    int x=0;
+    while(true){
+     b=input.read();if(b<0)throw new EOFException("KAP truncado na linha "+y);
+     if(b==0)break;
+     int index=(b&127)>>(7-depth),length=b&((1<<(7-depth))-1);
+     while((b&128)!=0){b=input.read();if(b<0)throw new EOFException();length=(length<<7)|(b&127);}
+     length++;
+     if(x+length>width)throw new IOException("KAP RLE excede largura");
+     Arrays.fill(row,x,x+length,palette[Math.min(index,127)]);x+=length;
+    }
+    if(x!=width)throw new IOException("Linha KAP incompleta: "+y+" ("+x+"/"+width+")");
+    for(int tx=0;tx<tileCols;tx++){
+     int left=tx*tileW,w=Math.min(tileW,width-left);
+     strip[tx].setPixels(row,left,width,0,y%tileH,w,1);
+    }
+    if(y%tileH==tileH-1||y==height-1){
+     int top=(y/tileH)*tileH,h=Math.min(tileH,height-top);
+     for(int tx=0;tx<tileCols;tx++){
+      int left=tx*tileW,w=Math.min(tileW,width-left);
+      Bitmap crop=h==tileH?strip[tx]:Bitmap.createBitmap(strip[tx],0,0,w,h);
+      String filename=id+"_"+tx+"_"+(top/tileH)+".png";
+      try(OutputStream out=new FileOutputStream(new File(charts,filename))){
+       if(!crop.compress(Bitmap.CompressFormat.PNG,100,out))throw new IOException("Falha ao gravar bloco KAP");
+      }
+      if(crop!=strip[tx])crop.recycle();
+      tiles.put(new JSONObject().put("id",filename).put("x",left).put("y",top).put("w",w).put("h",h));
+     }
+    }
    }
-   if(x!=width)throw new IOException("Linha KAP incompleta: "+y+" ("+x+"/"+width+")");
-   if(y%stride==0){
-    for(int ox=0;ox<outWidth;ox++)reduced[ox]=row[Math.min(width-1,ox*stride)];
-    bmp.setPixels(reduced,0,outWidth,0,y/stride,outWidth,1);
-   }
-  }
+  }finally{for(Bitmap bitmap:strip)bitmap.recycle();}
   if(refs.size()<4)throw new IOException("KAP exige ao menos 4 pontos REF para validação");
   // Fit a full 2-D affine transform from pixel coordinates to spherical Mercator.
   // Reject non-affine, non-Mercator and otherwise inconsistent charts.
@@ -230,11 +248,8 @@ public class MainActivity extends Activity {
    if(!Double.isFinite(latitude)||!Double.isFinite(longitude)||Math.abs(latitude)>85||Math.abs(longitude)>180)throw new IOException("Coordenadas inválidas");
    corners.put(new JSONArray().put(latitude).put(longitude));
   }
-  String id=UUID.randomUUID().toString().replace("-","");
-  File png=new File(charts,id+".png");
-  try(OutputStream out=new FileOutputStream(png)){if(!bmp.compress(Bitmap.CompressFormat.PNG,95,out))throw new IOException("Falha PNG");}finally{bmp.recycle();}
-  JSONObject meta=new JSONObject();meta.put("id",id+".png");meta.put("name",name);meta.put("corners",corners);
-  meta.put("originalWidth",width);meta.put("originalHeight",height);meta.put("previewWidth",outWidth);meta.put("previewHeight",outHeight);
+  JSONObject meta=new JSONObject();meta.put("id",id+".png");meta.put("name",name);meta.put("corners",corners);meta.put("tiles",tiles);
+  meta.put("originalWidth",width);meta.put("originalHeight",height);meta.put("previewWidth",width);meta.put("previewHeight",height);
   meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);
   try(OutputStream out=new FileOutputStream(new File(charts,id+".kap.json"))){out.write(meta.toString().getBytes("UTF-8"));}
  }
