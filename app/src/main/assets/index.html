@@ -1,24 +1,24 @@
 <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>NautiBR</title><link rel="stylesheet" href="/vendor/leaflet.css">
 <script src="/vendor/leaflet.js"></script>
-<script src="/vendor/geotiff.js"></script>
+
 <style>*{box-sizing:border-box}body{margin:0;background:#0d1824;color:#e7f0f7;font:15px system-ui,sans-serif}
 header{padding:12px 16px;background:#162b3b;display:flex;align-items:center;justify-content:space-between;gap:16px}header strong{font-size:17px;white-space:nowrap}header span{font-size:12px;text-align:right}nav{display:flex;gap:6px;padding:10px;background:#132432}
 button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b63;color:#fff;font-size:13px}nav button{flex:1}
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR · build 45</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 46</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Mapa de Santos</div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
 <p class="warning">Visualizador experimental. Não usar para navegação real.</p></section>
 <section class="screen" id="importScreen"><h3>Importar cartas</h3>
-<p>Selecione KAP/BSB, GeoTIFF (.tif/.tiff), GeoJSON ou ZIP contendo esses formatos.</p>
-<button onclick="Native.importCharts()">Importar KAP, GeoTIFF ou ZIP</button>
+<p>Selecione KAP/BSB, GeoJSON ou ZIP contendo esses formatos.</p>
+<button onclick="Native.importCharts()">Importar KAP ou ZIP</button>
 <button onclick="Native.importGeo()">Importar GeoJSON ou ZIP</button>
-<h4>Cartas KAP</h4><div id="kapfiles"></div><h4>GeoTIFF</h4><div id="tifffiles"></div><div id="diagnostic" style="display:none;border:1px solid #456579;padding:10px;margin-top:10px;border-radius:8px"><strong>Diagnóstico GeoTIFF</strong><textarea id="diagnosticText" readonly style="width:100%;height:220px;margin-top:8px;background:#09141d;color:#e7f0f7;font:12px monospace"></textarea><button onclick="copyDiagnostic()">Copiar diagnóstico</button></div><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
-<p class="warning">GeoTIFF: EPSG:4326, EPSG:3857, UTM WGS84, Mercator personalizada e Transversa de Mercator personalizada com parâmetros completos, sem rotação, nesta versão. Formatos incompatíveis são rejeitados. O decodificador e as cartas importadas funcionam offline. O mapa-base OpenStreetMap exige internet; sem ela, as cartas continuam visíveis sobre o fundo do mapa.</p></section>
+<h4>Cartas KAP</h4><div id="kapfiles"></div><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
+<p class="warning">Cartas KAP e GeoJSON importadas funcionam offline. O mapa-base OpenStreetMap exige internet.</p></section>
 <section class="screen" id="aisScreen">
 <h3>AIS — alvos em tempo real</h3>
 <p>Fonte TCP: receptor AIS com saída NMEA 0183 por Wi-Fi/rede local. Não é necessário acesso à internet.</p>
@@ -30,61 +30,18 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <p id="aisCount">0 alvos</p>
 <p class="warning">Posições AIS podem estar atrasadas, incorretas ou ausentes. Não utilizar para evitar colisões ou navegação operacional.</p>
 </section>
-<div id="status"></div><div id="decodeProgress" style="display:none;padding:10px 14px;background:#162b3b"><div id="decodeLabel">Preparando GeoTIFF...</div><progress id="decodeBar" max="100" value="0" style="width:100%;height:16px"></progress><button id="decodeCancel" onclick="cancelTiff()">Cancelar</button></div>
-<script>
-const $=id=>document.getElementById(id);let map,geoLayer,kapLayer,tiffLayer;
+<div id="status"></div><script>
+const $=id=>document.getElementById(id);let map,geoLayer,kapLayer;
 function status(s){$('status').textContent=s}
 function screen(id){for(const e of document.querySelectorAll('.screen'))e.classList.toggle('active',e.id===id);if(id==='mapScreen'&&map)setTimeout(()=>map.invalidateSize(),50)}
 function makeRow(container,name,fn){const row=document.createElement('div'),label=document.createElement('span'),btn=document.createElement('button');row.className='file';label.textContent=name;btn.textContent='Mostrar no mapa';btn.onclick=fn;row.append(label,btn);$(container).append(row)}
 function onStatus(s){status(s);refresh()}
 function onGeoImported(s){refresh()}
 function refresh(){
- for(const id of ['kapfiles','tifffiles','geofiles'])$(id).replaceChildren();
+ for(const id of ['kapfiles','geofiles'])$(id).replaceChildren();
  try{for(const c of JSON.parse(Native.kapFiles()))makeRow('kapfiles',c.name,()=>openKap(c))}catch(e){status(e.message)}
  try{for(const c of JSON.parse(Native.geoFiles()))makeRow('geofiles',c.name,()=>openGeo(c))}catch(e){status(e.message)}
- try{Native.listCharts()}catch(e){}
-}
-function onCharts(s){
- const list=$('tifffiles');list.replaceChildren();
- try{
-  const files=JSON.parse(s);
-  const tiffs=files.filter(c=>typeof c.id==='string' && (c.id.toLowerCase().endsWith('.tif')||c.id.toLowerCase().endsWith('.tiff')));
-  for(const c of tiffs){
-   const row=document.createElement('div'),label=document.createElement('span'),show=document.createElement('button'),diag=document.createElement('button');
-   row.className='file';label.textContent=c.name;show.textContent='Mostrar no mapa';diag.textContent='Diagnóstico';
-   show.onclick=()=>openTiff(c);diag.onclick=()=>diagnoseTiff(c);
-   row.append(label,show,diag);list.append(row);
-  }
-  if(!tiffs.length){const hint=document.createElement('p');hint.textContent='Nenhum GeoTIFF salvo. Arquivos TIFF importados aparecerão aqui.';hint.style.opacity='.65';list.append(hint);}
- }catch(e){status('Erro na lista GeoTIFF: '+e.message)}
-}
-async function diagnoseTiff(c){
- const panel=$('diagnostic'),output=$('diagnosticText');panel.style.display='block';output.value='Lendo metadados...';status('Extraindo metadados sem decodificar a imagem');
- try{
-  const url='https://nautibr.local/chart?id='+encodeURIComponent(c.id);
-  const response=await fetch(url);if(!response.ok)throw Error('Não foi possível ler o arquivo');const tiff=await GeoTIFF.fromArrayBuffer(await response.arrayBuffer()),image=await tiff.getImage();
-  const fd=image.fileDirectory;
-  const metadata={
-   file:c.name,dimensions:[image.getWidth(),image.getHeight()],
-   geoKeys:image.getGeoKeys(),
-   modelPixelScale:fd.ModelPixelScale||null,
-   modelTiepoint:fd.ModelTiepoint||null,
-   modelTransformation:fd.ModelTransformation||null,
-   geoAsciiParams:fd.GeoAsciiParams||null,
-   geoDoubleParams:fd.GeoDoubleParams||null,
-   compression:fd.Compression||null,
-   sampleFormat:fd.SampleFormat||null,
-   photometricInterpretation:fd.PhotometricInterpretation||null,
-   software:fd.Software||null
-  };
-  output.value=JSON.stringify(metadata,null,2);status('Diagnóstico pronto; copie o texto abaixo');
- }catch(e){output.value='Erro no diagnóstico: '+e.message;status(output.value)}
-}
-function copyDiagnostic(){
- const value=$('diagnosticText').value;
- if(window.Native&&Native.copyText){Native.copyText(value);status('Diagnóstico copiado');return}
- $('diagnosticText').focus();$('diagnosticText').select();
- document.execCommand('copy');status('Diagnóstico selecionado e copiado');
+
 }
 function openGeo(c){try{const json=JSON.parse(Native.readGeo(c.id));if(geoLayer)map.removeLayer(geoLayer);geoLayer=L.geoJSON(json).addTo(map);if(geoLayer.getBounds().isValid())map.fitBounds(geoLayer.getBounds());$('mapname').textContent=c.name;screen('mapScreen')}catch(e){status(e.message)}}
 const kapImageCache=new Map();
@@ -154,139 +111,6 @@ function openKap(c){
   screen('mapScreen');
  }catch(e){status('KAP: '+e.message)}
 }
-function utmInverse(easting,northing,lon0,lat0,k0,falseE,falseN,a,invF){
- const f=1/invF,e2=f*(2-f),ep2=e2/(1-e2);
- const M0=a*((1-e2/4-3*e2*e2/64-5*e2**3/256)*lat0-(3*e2/8+3*e2*e2/32+45*e2**3/1024)*Math.sin(2*lat0)+(15*e2*e2/256+45*e2**3/1024)*Math.sin(4*lat0)-(35*e2**3/3072)*Math.sin(6*lat0));
- const M=M0+(northing-falseN)/k0,mu=M/(a*(1-e2/4-3*e2*e2/64-5*e2**3/256));
- const e1=(1-Math.sqrt(1-e2))/(1+Math.sqrt(1-e2));
- const fp=mu+(3*e1/2-27*e1**3/32)*Math.sin(2*mu)+(21*e1*e1/16-55*e1**4/32)*Math.sin(4*mu)+(151*e1**3/96)*Math.sin(6*mu)+(1097*e1**4/512)*Math.sin(8*mu);
- const C=ep2*Math.cos(fp)**2,T=Math.tan(fp)**2,N=a/Math.sqrt(1-e2*Math.sin(fp)**2),R=a*(1-e2)/(1-e2*Math.sin(fp)**2)**1.5,D=(easting-falseE)/(N*k0);
- const lat=fp-(N*Math.tan(fp)/R)*(D*D/2-(5+3*T+10*C-4*C*C-9*ep2)*D**4/24+(61+90*T+298*C+45*T*T-252*ep2-3*C*C)*D**6/720);
- const lon=lon0+(D-(1+2*T+C)*D**3/6+(5-2*C+28*T-3*C*C+8*ep2+24*T*T)*D**5/120)/Math.cos(fp);
- return [lat*180/Math.PI,lon*180/Math.PI];
-}
-function geotiffProjection(keys){
- const code=Number(keys.ProjectedCSTypeGeoKey||keys.GeographicTypeGeoKey);
- if(code===4326)return {name:'EPSG:4326',convert:(x,y)=>[y,x]};
- if(code===3857)return {name:'EPSG:3857',convert:(x,y)=>[Math.atan(Math.sinh(y/6378137))*180/Math.PI,x/6378137*180/Math.PI]};
- let lon0,lat0=0,k0=.9996,falseE=500000,falseN=0,a=6378137,invF=298.257223563;
- if(code>=32601&&code<=32660){lon0=(code-32600)*6-183;}
- else if(code>=32701&&code<=32760){lon0=(code-32700)*6-183;falseN=10000000;}
- else if(code===32767||code===undefined||!code){
-  const ct=Number(keys.ProjCoordTransGeoKey);
-  if(ct!==1&&ct!==7)throw Error('Projeção definida pelo usuário: transformação '+ct+' não implementada. Parâmetros: '+JSON.stringify(keys).slice(0,350));
-  const required=ct===7?[]:['ProjNatOriginLongGeoKey','ProjScaleAtNatOriginGeoKey','ProjFalseEastingGeoKey','ProjFalseNorthingGeoKey'];
-  for(const key of required)if(!Number.isFinite(Number(keys[key])))throw Error('Projeção definida pelo usuário sem '+key);
-  if(keys.ProjNatOriginLongGeoKey===undefined&&keys.ProjCenterLongGeoKey===undefined)throw Error('Longitude de origem ausente na projeção personalizada');
-  lon0=Number(keys.ProjNatOriginLongGeoKey??keys.ProjCenterLongGeoKey);lat0=Number(keys.ProjNatOriginLatGeoKey||0);
-  k0=Number(keys.ProjScaleAtNatOriginGeoKey??1);falseE=Number(keys.ProjFalseEastingGeoKey??0);falseN=Number(keys.ProjFalseNorthingGeoKey??0);
-  if(ct===7&&keys.ProjStdParallel1GeoKey!==undefined&&keys.ProjScaleAtNatOriginGeoKey===undefined){
-   const phi=Number(keys.ProjStdParallel1GeoKey)*Math.PI/180;
-   const eccentricity2=(1/invF)*(2-1/invF);
-   k0=Math.cos(phi)/Math.sqrt(1-eccentricity2*Math.sin(phi)**2);
-  }
-  const units=Number(keys.ProjLinearUnitsGeoKey??9001);
-  if(units!==9001)throw Error('Unidade projetada '+units+' não suportada: não é metro');
-  const datum=Number(keys.GeogGeodeticDatumGeoKey??6326);
-  if(datum!==6326&&datum!==32767)throw Error('Datum '+datum+' requer transformação para WGS84; posicionamento recusado');
-  if(datum===32767&&!keys.GeogTOWGS84GeoKey)throw Error('Datum personalizado sem transformação WGS84; posição não confiável');
-  const ellipsoid=Number(keys.GeogEllipsoidGeoKey||7030);
-  if(ellipsoid!==7030 && ellipsoid!==32767)throw Error('Elipsoide '+ellipsoid+' não suportado');
-  if(ellipsoid===32767){
-   a=Number(keys.GeogSemiMajorAxisGeoKey);
-   invF=Number(keys.GeogInvFlatteningGeoKey);
-   if(!(a>6000000&&a<7000000&&invF>200&&invF<400))throw Error('Elipsoide personalizado incompleto');
-  }
-  if(ct===7){
-   const e=Math.sqrt((1/invF)*(2-1/invF));
-   return {name:'Mercator personalizada',convert:(x,y)=>{
-    const lon=(lon0*Math.PI/180+(x-falseE)/(a*k0))*180/Math.PI;
-    const t=Math.exp(-(y-falseN)/(a*k0));let phi=Math.PI/2-2*Math.atan(t);
-    for(let n=0;n<12;n++){const es=e*Math.sin(phi);const next=Math.PI/2-2*Math.atan(t*Math.pow((1-es)/(1+es),e/2));if(Math.abs(next-phi)<1e-13){phi=next;break}phi=next}
-    return [phi*180/Math.PI,lon];
-   }};
-  }
- }else throw Error('Projeção EPSG:'+code+' não suportada');
- if(!(k0>0&&k0<2&&Math.abs(lon0)<=180&&Math.abs(lat0)<=90))throw Error('Parâmetros da projeção inválidos');
- return {name:code===32767?'TM personalizada':'UTM EPSG:'+code,convert:(x,y)=>utmInverse(x,y,lon0*Math.PI/180,lat0*Math.PI/180,k0,falseE,falseN,a,invF)};
-}
-let activeTiffWorker=null;
-const tiffCache=new Map();
-let currentTiffId=null;
-function cancelTiff(){
- if(activeTiffWorker){activeTiffWorker.terminate();activeTiffWorker=null;}
- $('decodeProgress').style.display='none';status('Decodificação cancelada');
-}
-async function openTiff(c){
- if(tiffCache.has(c.id)){
-  cancelTiff();
-  const cached=tiffCache.get(c.id);
-  if(tiffLayer)map.removeLayer(tiffLayer);
-  tiffLayer=cached.layer.addTo(map);currentTiffId=c.id;
-  map.fitBounds(cached.bounds);screen("mapScreen");
-  $("mapname").textContent=c.name+" · "+cached.projection;
-  status("GeoTIFF recuperado da memória, sem nova decodificação");return;
- }
- if(activeTiffWorker&&currentTiffId===c.id){screen("mapScreen");status("Decodificação em andamento");return;}
- cancelTiff();currentTiffId=c.id;
- const progress=$('decodeProgress'),bar=$('decodeBar'),label=$('decodeLabel');
- progress.style.display='block';bar.value=0;label.textContent='Lendo arquivo GeoTIFF...';
- try{
-  if(!window.Worker)throw Error('Web Worker não suportado nesta versão do Android');
-  const worker=new Worker('/vendor/tiff-worker.js');
-  activeTiffWorker=worker;
-  let meta=null,bounds=null;
-  worker.onerror=e=>{if(activeTiffWorker===worker){status('Falha na thread GeoTIFF: '+(e.message||'erro desconhecido'));progress.style.display='none';worker.terminate();activeTiffWorker=null}};
-  worker.onmessage=e=>{
-   if(activeTiffWorker!==worker)return;
-   const d=e.data;
-   try{
-    if(d.type==='metadata'){
-     const projection=geotiffProjection(d.keys);
-     if(d.transformation)throw Error('Transformação matricial ainda não suportada');
-     if(!d.scale||!d.tie||d.tie.length<6)throw Error('Georreferenciamento incompleto');
-     const [sx,sy]=d.scale,tie=d.tie;
-     if(!(sx>0&&sy>0))throw Error('Escala inválida');
-     const left=tie[3]-tie[0]*sx,top=tie[4]+tie[1]*sy;
-     meta={projection,left,top,sx,sy,width:d.width,height:d.height,name:c.name};
-     const nw=projection.convert(left,top),se=projection.convert(left+d.width*sx,top-d.height*sy);
-     if(!nw.concat(se).every(Number.isFinite)||nw[0]<=se[0]||nw[1]>=se[1])throw Error("Limites geográficos inválidos");
-     bounds=[se,nw];
-     if(tiffLayer)map.removeLayer(tiffLayer);
-     tiffLayer=L.layerGroup().addTo(map);
-     map.fitBounds(bounds);screen('mapScreen');
-     $('mapname').textContent=c.name+' · '+projection.name;
-     label.textContent='Decodificando blocos em segundo plano...';
-    }else if(d.type==='tile'){
-     if(!meta)return;
-     const canvas=document.createElement('canvas');canvas.width=d.w;canvas.height=d.h;
-     const ctx=canvas.getContext('2d');
-     ctx.putImageData(new ImageData(new Uint8ClampedArray(d.rgba),d.w,d.h),0,0);
-     const nw=meta.projection.convert(meta.left+d.x*meta.sx,meta.top-d.y*meta.sy);
-     const se=meta.projection.convert(meta.left+(d.x+d.w)*meta.sx,meta.top-(d.y+d.h)*meta.sy);
-     L.imageOverlay(canvas.toDataURL('image/png'),[se,nw],{opacity:1,interactive:false}).addTo(tiffLayer);
-     bar.value=Math.round(100*d.done/d.total);label.textContent='GeoTIFF: '+d.done+' / '+d.total+' blocos ('+bar.value+'%)';
-    }else if(d.type==='complete'){
-     label.textContent='GeoTIFF carregado: '+d.total+' blocos';bar.value=100;
-     tiffCache.set(c.id,{layer:tiffLayer,bounds,projection:meta.projection.name});
-     status('GeoTIFF carregado e mantido em memória: '+meta.width+' × '+meta.height+' · '+meta.projection.name);
-     worker.terminate();activeTiffWorker=null;progress.style.display='none';
-    }else if(d.type==='error'){throw Error(d.message)}
-   }catch(err){
-    status('Erro GeoTIFF: '+err.message);
-    label.textContent='Falha: '+err.message;
-    worker.terminate();activeTiffWorker=null;
-   }
-  };
-  const url='https://nautibr.local/chart?id='+encodeURIComponent(c.id);
-  const res=await fetch(url);if(!res.ok)throw Error('Falha ao ler GeoTIFF');
-  const buffer=await res.arrayBuffer();
-  if(activeTiffWorker!==worker)return;
-  label.textContent='Iniciando decodificação em thread...';
-  worker.postMessage({type:'decode',buffer},[buffer]);
- }catch(e){status('GeoTIFF: '+e.message);progress.style.display='none';if(activeTiffWorker){activeTiffWorker.terminate();activeTiffWorker=null}}
-}
-
 // AIS: NMEA 0183 six-bit parser, fragment assembly and marker lifetime.
 const aisTargets=new Map(),aisFragments=new Map();
 let aisLayer=null,aisPollTimer=null;
