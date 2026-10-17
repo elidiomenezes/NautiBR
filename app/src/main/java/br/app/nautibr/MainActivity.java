@@ -1,94 +1,47 @@
 package br.app.nautibr;
-
 import android.app.Activity;
-import android.app.DownloadManager;
-import android.content.Context;
+import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
-import android.view.View;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.Toast;
-import android.webkit.CookieManager;
-import android.webkit.DownloadListener;
-import android.webkit.WebChromeClient;
-import android.webkit.WebResourceRequest;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import org.json.JSONObject;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends Activity {
-    private static final String CATALOG = "https://www.marinha.mil.br/chm/dados-do-segnav/cartas-raster";
-    private WebView web;
-
-    @Override public void onCreate(Bundle state) {
-        super.onCreate(state);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout toolbar = new LinearLayout(this);
-        Button home = new Button(this);
-        home.setText("Cartas da Marinha");
-        home.setOnClickListener(v -> web.loadUrl(CATALOG));
-        Button back = new Button(this);
-        back.setText("Voltar");
-        back.setOnClickListener(v -> { if (web.canGoBack()) web.goBack(); });
-        toolbar.addView(home, new LinearLayout.LayoutParams(0, -2, 2));
-        toolbar.addView(back, new LinearLayout.LayoutParams(0, -2, 1));
-        root.addView(toolbar);
-        web = new WebView(this);
-        root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
-        setContentView(root);
-
-        web.getSettings().setJavaScriptEnabled(true);
-        web.getSettings().setDomStorageEnabled(true);
-        web.getSettings().setBuiltInZoomControls(true);
-        web.getSettings().setDisplayZoomControls(false);
-        web.getSettings().setSupportZoom(true);
-        web.getSettings().setUseWideViewPort(true);
-        web.getSettings().setLoadWithOverviewMode(true);
-        CookieManager.getInstance().setAcceptCookie(true);
-        web.setWebChromeClient(new WebChromeClient());
-        web.setWebViewClient(new WebViewClient() {
-            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                Uri uri = request.getUrl();
-                if ("http".equals(uri.getScheme()) || "https".equals(uri.getScheme())) return false;
-                return true;
-            }
-        });
-        web.setDownloadListener((url, userAgent, disposition, mimeType, contentLength) -> {
-            try {
-                Uri uri = Uri.parse(url);
-                if (!"https".equalsIgnoreCase(uri.getScheme())) throw new IllegalArgumentException("URL insegura");
-                String filename = android.webkit.URLUtil.guessFileName(url, disposition, mimeType);
-                filename = filename.replaceAll("[^a-zA-Z0-9._-]", "_");
-                DownloadManager.Request req = new DownloadManager.Request(uri);
-                req.setTitle(filename);
-                req.setDescription("Carta nautica - NautiBR");
-                req.setMimeType(mimeType);
-                req.addRequestHeader("User-Agent", userAgent == null ? "NautiBR" : userAgent);
-                String cookies = CookieManager.getInstance().getCookie(url);
-                if (cookies != null) req.addRequestHeader("Cookie", cookies);
-                req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename);
-                ((DownloadManager)getSystemService(Context.DOWNLOAD_SERVICE)).enqueue(req);
-                Toast.makeText(this, "Baixando: " + filename, Toast.LENGTH_LONG).show();
-            } catch (Exception e) {
-                Toast.makeText(this, "Falha no download: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            }
-        });
-        if (state == null) web.loadUrl(CATALOG);
-        else web.restoreState(state);
-    }
-    @Override protected void onSaveInstanceState(Bundle state) {
-        web.saveState(state);
-        super.onSaveInstanceState(state);
-    }
-    @Override public void onBackPressed() {
-        if (web.canGoBack()) web.goBack();
-        else super.onBackPressed();
-    }
-    @Override protected void onDestroy() {
-        web.destroy();
-        super.onDestroy();
-    }
+ private WebView web;
+ private static final String CATALOG="https://www.marinha.mil.br/chm/dados-do-segnav/cartas-raster";
+ @Override public void onCreate(Bundle state) {
+  super.onCreate(state);
+  web=new WebView(this);setContentView(web);
+  web.getSettings().setJavaScriptEnabled(true);
+  web.getSettings().setDomStorageEnabled(true);
+  web.addJavascriptInterface(new Bridge(),"Native");
+  web.setWebViewClient(new WebViewClient());
+  web.loadUrl("file:///android_asset/index.html");
+ }
+ void callback(String fn,String value){runOnUiThread(()->web.evaluateJavascript(fn+"("+JSONObject.quote(value)+")",null));}
+ public class Bridge {
+  @JavascriptInterface public void openCatalog(String number,String title) {
+   runOnUiThread(()->{
+    Uri.Builder b=Uri.parse(CATALOG).buildUpon();
+    if(number!=null&&!number.trim().isEmpty())b.appendQueryParameter("field_numero_raster_value",number.trim());
+    if(title!=null&&!title.trim().isEmpty())b.appendQueryParameter("title",title.trim());
+    startActivity(new Intent(Intent.ACTION_VIEW,b.build()).addCategory(Intent.CATEGORY_BROWSABLE));
+   });
+  }
+  @JavascriptInterface public void marine(double lat,double lon) {
+   new Thread(()->{try{
+    URL url=new URL("https://marine-api.open-meteo.com/v1/marine?latitude="+lat+"&longitude="+lon+"&current=wave_height,wave_direction,ocean_current_velocity,ocean_current_direction,sea_level_height_msl");
+    HttpURLConnection c=(HttpURLConnection)url.openConnection();c.setConnectTimeout(12000);c.setReadTimeout(20000);
+    try(InputStream in=c.getInputStream()){callback("onMarine",new String(in.readAllBytes(),StandardCharsets.UTF_8));}finally{c.disconnect();}
+   }catch(Exception e){callback("onStatus",e.toString());}}).start();
+  }
+  @JavascriptInterface public void saveKey(String key){getPreferences(0).edit().putString("ais",key).apply();}
+  @JavascriptInterface public String getKey(){return getPreferences(0).getString("ais","");}
+ }
 }
