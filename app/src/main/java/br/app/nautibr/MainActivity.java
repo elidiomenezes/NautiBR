@@ -143,7 +143,8 @@ public class MainActivity extends Activity {
  void callback(String fn,String value){runOnUiThread(()->web.evaluateJavascript(fn+"("+JSONObject.quote(value)+")",null));}
  void status(String s){callback("onStatus",s);}
  public class Bridge{
-  @JavascriptInterface public String aisDiagnostics(){return getSharedPreferences("ais_diagnostics",MODE_PRIVATE).getString("log","");}
+  @JavascriptInterface public String aisDiagnostics(){return "VERSÃO INSTALADA: NautiBR "+AisService.buildLabel(MainActivity.this)+"\\n"+getSharedPreferences("ais_diagnostics",MODE_PRIVATE).getString("log","");}
+  @JavascriptInterface public String installedBuild(){return AisService.buildLabel(MainActivity.this);}
   @JavascriptInterface public void clearAisDiagnostics(){getSharedPreferences("ais_diagnostics",MODE_PRIVATE).edit().remove("log").apply();}
 
   @JavascriptInterface public void stopAISStream(){startService(new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STOP));}
