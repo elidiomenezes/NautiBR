@@ -118,6 +118,7 @@ public class AisService extends Service {
  }
  private void schedule(int gen,int attempt,Runnable connect){
   if(!active||gen!=generation)return;
+  if(retry!=null)handler.removeCallbacks(retry);
   long delay=Math.min(60000L,2000L*(1L<<Math.min(attempt,5)))+new Random().nextInt(1000);
   deliver("onAisStatus","AIS: reconexão em "+(delay/1000)+" s");
   retry=()->{if(active&&gen==generation)connect.run();};
@@ -135,9 +136,9 @@ public class AisService extends Service {
     boolean opened=false;
     @Override public void onOpen(WebSocket socket,Response response){
      if(gen!=generation){socket.cancel();return;}
-     opened=true;foreground("AISStream · conectado");
+     opened=true;try{foreground("AISStream · conectado");}catch(RuntimeException e){android.util.Log.e("NautiBR-AIS","Foreground update failed",e);}
      deliver("onAisStatus","AISStream: conectado; assinatura enviada");
-     if(!socket.send(sub))schedule(gen,0,()->connectStream(gen,0));
+     if(!socket.send(sub)){socket.cancel();schedule(gen,0,()->connectStream(gen,0));}
     }
     @Override public void onMessage(WebSocket socket,String message){if(gen==generation&&message.length()<1000000)deliver("onAisStreamMessage",message);}
     @Override public void onMessage(WebSocket socket,ByteString bytes){if(gen==generation&&bytes.size()<1000000)deliver("onAisStreamMessage",bytes.utf8());}
@@ -145,12 +146,14 @@ public class AisService extends Service {
     @Override public void onClosed(WebSocket socket,int code,String reason){
      if(gen!=generation)return;
      deliver("onAisStatus","AISStream: conexão encerrada ("+code+")");
-     if(code!=1000&&code!=1008&&code!=4001)schedule(gen,opened?0:attempt+1,()->connectStream(gen,opened?0:attempt+1));
+     if(code==1008||code==4001){deliver("onAisStatus","AISStream: encerramento permanente ("+code+")");disconnect();stopSelf();}
+     else schedule(gen,opened?0:attempt+1,()->connectStream(gen,opened?0:attempt+1));
     }
     @Override public void onFailure(WebSocket socket,Throwable err,Response response){
      if(gen!=generation)return;
      deliver("onAisStatus","AISStream: "+err.getClass().getSimpleName()+": "+err.getMessage());
-     if(response==null||response.code()>=500||response.code()==429)schedule(gen,opened?0:attempt+1,()->connectStream(gen,opened?0:attempt+1));
+     if(response!=null&&response.code()>=400&&response.code()<500&&response.code()!=429){deliver("onAisStatus","AISStream: erro HTTP permanente "+response.code());disconnect();stopSelf();}
+     else schedule(gen,opened?0:attempt+1,()->connectStream(gen,opened?0:attempt+1));
     }
    });
   }catch(Exception e){deliver("onAisStatus","AISStream: "+e.getMessage());schedule(gen,attempt+1,()->connectStream(gen,attempt+1));}
@@ -161,7 +164,7 @@ public class AisService extends Service {
    while(active&&gen==generation){
     try{
      Socket socket=new Socket();tcp=socket;socket.connect(new InetSocketAddress(host,port),8000);socket.setSoTimeout(30000);
-     attempt=0;foreground("AIS TCP · conectado");
+     attempt=0;try{foreground("AIS TCP · conectado");}catch(RuntimeException e){android.util.Log.e("NautiBR-AIS","Foreground update failed",e);}
      deliver("onAisStatus","AIS TCP: conectado");
      try(BufferedReader reader=new BufferedReader(new InputStreamReader(socket.getInputStream(),StandardCharsets.US_ASCII))){
       String line;while(active&&gen==generation&&(line=reader.readLine())!=null){
