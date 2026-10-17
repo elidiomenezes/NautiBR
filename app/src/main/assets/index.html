@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 36</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="Native.openNavy()">Site da Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Mapa de Santos</div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -18,7 +18,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <button onclick="Native.importCharts()">Importar KAP, GeoTIFF ou ZIP</button>
 <button onclick="Native.importGeo()">Importar GeoJSON ou ZIP</button>
 <h4>Cartas KAP</h4><div id="kapfiles"></div><h4>GeoTIFF</h4><div id="tifffiles"></div><div id="diagnostic" style="display:none;border:1px solid #456579;padding:10px;margin-top:10px;border-radius:8px"><strong>Diagnóstico GeoTIFF</strong><textarea id="diagnosticText" readonly style="width:100%;height:220px;margin-top:8px;background:#09141d;color:#e7f0f7;font:12px monospace"></textarea><button onclick="copyDiagnostic()">Copiar diagnóstico</button></div><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
-<p class="warning">GeoTIFF: EPSG:4326, EPSG:3857, UTM WGS84 e Transversa de Mercator personalizada com parâmetros completos, sem rotação, nesta versão. Formatos incompatíveis são rejeitados. O decodificador e as cartas importadas funcionam offline. O mapa-base OpenStreetMap exige internet; sem ela, as cartas continuam visíveis sobre o fundo do mapa.</p></section>
+<p class="warning">GeoTIFF: EPSG:4326, EPSG:3857, UTM WGS84, Mercator personalizada e Transversa de Mercator personalizada com parâmetros completos, sem rotação, nesta versão. Formatos incompatíveis são rejeitados. O decodificador e as cartas importadas funcionam offline. O mapa-base OpenStreetMap exige internet; sem ela, as cartas continuam visíveis sobre o fundo do mapa.</p></section>
 <div id="status"></div>
 <script>
 const $=id=>document.getElementById(id);let map,geoLayer,kapLayer,tiffLayer;
@@ -47,7 +47,7 @@ async function diagnoseTiff(c){
  const panel=$('diagnostic'),output=$('diagnosticText');panel.style.display='block';output.value='Lendo metadados...';status('Extraindo metadados sem decodificar a imagem');
  try{
   const url='https://nautibr.local/chart?id='+encodeURIComponent(c.id);
-  const tiff=await GeoTIFF.fromUrl(url),image=await tiff.getImage();
+  const response=await fetch(url);if(!response.ok)throw Error('Não foi possível ler o arquivo');const tiff=await GeoTIFF.fromArrayBuffer(await response.arrayBuffer()),image=await tiff.getImage();
   const fd=image.fileDirectory;
   const metadata={
    file:c.name,dimensions:[image.getWidth(),image.getHeight()],
@@ -105,17 +105,26 @@ function geotiffProjection(keys){
  else if(code>=32701&&code<=32760){lon0=(code-32700)*6-183;falseN=10000000;}
  else if(code===32767||code===undefined||!code){
   const ct=Number(keys.ProjCoordTransGeoKey);
-  if(ct!==1)throw Error('Projeção definida pelo usuário: transformação '+ct+' não implementada. Parâmetros: '+JSON.stringify(keys).slice(0,350));
-  const required=['ProjNatOriginLongGeoKey','ProjScaleAtNatOriginGeoKey','ProjFalseEastingGeoKey','ProjFalseNorthingGeoKey'];
+  if(ct!==1&&ct!==7)throw Error('Projeção definida pelo usuário: transformação '+ct+' não implementada. Parâmetros: '+JSON.stringify(keys).slice(0,350));
+  const required=ct===7?[]:['ProjNatOriginLongGeoKey','ProjScaleAtNatOriginGeoKey','ProjFalseEastingGeoKey','ProjFalseNorthingGeoKey'];
   for(const key of required)if(!Number.isFinite(Number(keys[key])))throw Error('Projeção definida pelo usuário sem '+key);
-  lon0=Number(keys.ProjNatOriginLongGeoKey);lat0=Number(keys.ProjNatOriginLatGeoKey||0);
-  k0=Number(keys.ProjScaleAtNatOriginGeoKey);falseE=Number(keys.ProjFalseEastingGeoKey);falseN=Number(keys.ProjFalseNorthingGeoKey);
+  lon0=Number(keys.ProjNatOriginLongGeoKey??keys.ProjCenterLongGeoKey??0);lat0=Number(keys.ProjNatOriginLatGeoKey||0);
+  k0=Number(keys.ProjScaleAtNatOriginGeoKey??1);falseE=Number(keys.ProjFalseEastingGeoKey??0);falseN=Number(keys.ProjFalseNorthingGeoKey??0);
   const ellipsoid=Number(keys.GeogEllipsoidGeoKey||7030);
   if(ellipsoid!==7030 && ellipsoid!==32767)throw Error('Elipsoide '+ellipsoid+' não suportado');
   if(ellipsoid===32767){
    a=Number(keys.GeogSemiMajorAxisGeoKey);
    invF=Number(keys.GeogInvFlatteningGeoKey);
    if(!(a>6000000&&a<7000000&&invF>200&&invF<400))throw Error('Elipsoide personalizado incompleto');
+  }
+  if(ct===7){
+   const e=Math.sqrt((1/invF)*(2-1/invF));
+   return {name:'Mercator personalizada',convert:(x,y)=>{
+    const lon=(lon0*Math.PI/180+(x-falseE)/(a*k0))*180/Math.PI;
+    const t=Math.exp(-(y-falseN)/(a*k0));let phi=Math.PI/2-2*Math.atan(t);
+    for(let n=0;n<12;n++){const es=e*Math.sin(phi);const next=Math.PI/2-2*Math.atan(t*Math.pow((1-es)/(1+es),e/2));if(Math.abs(next-phi)<1e-13){phi=next;break}phi=next}
+    return [phi*180/Math.PI,lon];
+   }};
   }
  }else throw Error('Projeção EPSG:'+code+' não suportada');
  if(!(k0>0&&k0<2&&Math.abs(lon0)<=180&&Math.abs(lat0)<=90))throw Error('Parâmetros da projeção inválidos');
