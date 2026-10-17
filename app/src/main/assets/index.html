@@ -28,7 +28,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><label>Latitude <input id="aisLat" type="number" step="any" value="-22.970209043630273" style="width:135px"></label><label>Longitude <input id="aisLon" type="number" step="any" value="-43.406313076990074" style="width:135px"></label><label>Raio (km) <input id="aisRadius" type="number" min="1" max="300" value="60" style="width:70px"></label></div>
 <div style="display:flex;gap:6px;margin-top:6px"><button onclick="startAisInternet()">Conectar AISStream</button><button onclick="stopAisInternet()">Desconectar internet</button><button onclick="forgetAisKey()">Apagar chave</button></div>
 <p id="aisStatus">AIS desconectado</p><details open><summary>Diagnóstico AISStream</summary><pre id="aisDiagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#081521;padding:10px;border-radius:8px;font-size:12px;max-height:260px;overflow:auto">Nenhum evento recebido</pre><p style="font-size:12px">Conexão executada pelo cliente WebSocket nativo do Android, sem usar WebView para a rede. <a style="color:#8ed9ff" href="https://aisstream.io/documentation/">Documentação AISStream</a></p></details>
-<div style="display:flex;gap:8px"><button onclick="screen('mapScreen')">Ver alvos no mapa</button><button onclick="clearAis()">Limpar alvos</button></div>
+<div style="display:flex;gap:8px"><button onclick="focusAisTargets()">Ver alvos no mapa</button><button onclick="clearAis()">Limpar alvos</button></div>
 <p id="aisCount">0 alvos</p>
 <p class="warning">Posições AIS podem estar atrasadas, incorretas ou ausentes. Não utilizar para evitar colisões ou navegação operacional.</p>
 </section>
@@ -239,7 +239,7 @@ function onAisStreamMessage(message){
    if(!p){aisLog('Evento '+d.MessageType+': '+safeAisPayload(d));return;}
    const mmsi=Number(d.MetaData?.MMSI??p.UserID);
    const latitude=Number(p.Latitude??d.MetaData?.latitude??d.MetaData?.Latitude),longitude=Number(p.Longitude??d.MetaData?.longitude??d.MetaData?.Longitude);
-   if(!Number.isInteger(mmsi)||mmsi<=0||!Number.isFinite(latitude)||!Number.isFinite(longitude)||Math.abs(latitude)>90||Math.abs(longitude)>180)return;
+   if(!Number.isInteger(mmsi)||mmsi<=0||!Number.isFinite(latitude)||!Number.isFinite(longitude)||Math.abs(latitude)>90||Math.abs(longitude)>180){if(aisMessagesReceived<=20)aisLog('Posição ignorada: '+safeAisPayload(d));return;}
    const sog=Number(p.Sog),cog=Number(p.Cog),heading=Number(p.TrueHeading);
    aisPositionsReceived++;
    aisTargets.set(mmsi,{mmsi,lat:latitude,lon:longitude,sog:sog>=0&&sog<102.3?sog:null,cog:cog>=0&&cog<360?cog:null,heading:heading>=0&&heading<360?heading:null,updated:Date.now(),type:'AISStream'});
