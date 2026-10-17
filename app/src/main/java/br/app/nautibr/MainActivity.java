@@ -126,7 +126,7 @@ public class MainActivity extends Activity {
  }
  boolean isTiff(String name){return name.toLowerCase(Locale.ROOT).matches(".*\\.tiff?");}
  void saveTiff(InputStream in,String name)throws Exception{
-  String id=UUID.randomUUID().toString().replace("-")+".tif";
+  String id=UUID.randomUUID().toString().replace("-","")+".tif";
   File dest=new File(charts,id);long total=0;
   try(OutputStream out=new FileOutputStream(dest)){
    byte[] buffer=new byte[32768];int n;
