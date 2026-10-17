@@ -101,11 +101,13 @@ public class MainActivity extends Activity {
        if(++entries>100)throw new IOException("ZIP com entradas demais");
        if(entry.isDirectory())continue;
        String leaf=new File(entry.getName().replace('\\','/')).getName();
-       if(req==43 && isGeo(leaf)){saveGeo(zip,name+" / "+leaf);count++;}\n       else if(isKap(leaf)){saveKap(zip,name+" / "+leaf);count++;}
+       if(req==43 && isGeo(leaf)){saveGeo(zip,name+" / "+leaf);count++;}
+       else if(isKap(leaf)){saveKap(zip,name+" / "+leaf);count++;}
        else if(req==PICK && isImage(leaf)){saveImage(zip,name+" / "+leaf);count++;}
       }
      }
-    }else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}\n    else if(req==43 && isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
+    }else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}
+    else if(req==43 && isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
     else if(req==PICK && isImage(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveImage(in,name);count++;}}
     else errors.add(name+": formato não suportado");
    }catch(Exception e){errors.add(e.getMessage());}
@@ -132,7 +134,7 @@ public class MainActivity extends Activity {
    if(line.startsWith("BSB/")){kind="BSB";}else if(line.startsWith("REF/")){kind="REF";}
    else if(line.startsWith("RGB/")){kind="RGB";}
    if(line.startsWith("BSB/")||line.startsWith("RA=")){
-    java.util.regex.Matcher m=java.util.regex.Pattern.compile("RA=(\\\\d+),(\\\\d+)").matcher(line);
+    java.util.regex.Matcher m=java.util.regex.Pattern.compile("RA=(\\d+),(\\d+)").matcher(line);
     if(m.find()){width=Integer.parseInt(m.group(1));height=Integer.parseInt(m.group(2));}
    }
    if(line.startsWith("RGB/")){String[] a=line.substring(4).split(",");if(a.length>=4)try{
@@ -165,11 +167,7 @@ public class MainActivity extends Activity {
   double minX=Double.POSITIVE_INFINITY,maxX=Double.NEGATIVE_INFINITY,minY=Double.POSITIVE_INFINITY,maxY=Double.NEGATIVE_INFINITY;
   for(double[] r:refs){minX=Math.min(minX,r[0]);maxX=Math.max(maxX,r[0]);minY=Math.min(minY,r[1]);maxY=Math.max(maxY,r[1]);}
   if(maxX==minX||maxY==minY)throw new IOException("REF degenerado");
-  double west=0,east=0,north=0,south=0;int n=refs.size();
-  for(double[] r:refs){
-   double merc=Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));
-   west+=r[3]-(r[0]/(maxX-minX))*(r[3]-refs.get(0)[3]); // replaced below by linear regression
-  }
+  int n=refs.size();
   double mx=0,my=0,mlon=0,mm=0,xx=0,yy=0,xlon=0,ym=0;
   for(double[] r:refs){double latm=Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));mx+=r[0];my+=r[1];mlon+=r[3];mm+=latm;}
   mx/=n;my/=n;mlon/=n;mm/=n;
