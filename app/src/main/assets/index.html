@@ -35,7 +35,34 @@ const $=id=>document.getElementById(id);let scale=1,ox=0,oy=0,active=false,point
 function screen(id){for(let s of document.querySelectorAll('.screen'))s.classList.toggle('active',s.id===id)}
 function onStatus(s){$('status').textContent=s}
 function kapList(){let files=JSON.parse(Native.kapFiles()),list=$('kapfiles');list.replaceChildren();if(!files.length){list.textContent='Nenhuma carta KAP importada.';return}for(let c of files){let row=document.createElement('div'),label=document.createElement('span'),btn=document.createElement('button');row.className='file';label.textContent=c.name;btn.textContent='Mostrar no mapa';btn.onclick=()=>openKap(c);row.append(label,btn);list.append(row)}}
-let kapLayer;function openKap(c){if(!map)return;try{if(kapLayer)map.removeLayer(kapLayer);kapLayer=L.imageOverlay('https://nautibr.local/chart?id='+encodeURIComponent(c.id),c.bounds,{opacity:.85,interactive:false}).addTo(map);map.fitBounds(c.bounds);$('mapname').textContent=c.name+' (posição aproximada)';screen('mapScreen');onStatus('Carta KAP posicionada por aproximação REF; não utilizar para navegação')}catch(e){onStatus(e.message)}}
+let kapLayer=null;
+function openKap(c){
+ if(!map)return;
+ try{
+  if(kapLayer)map.removeLayer(kapLayer);
+  let corners=c.corners.map(p=>L.latLng(p[0],p[1]));
+  let bounds=L.latLngBounds(corners);
+  kapLayer=L.layerGroup().addTo(map);
+  let image=document.createElement('img');
+  image.src='https://nautibr.local/chart?id='+encodeURIComponent(c.id);
+  image.style.cssText='position:absolute;left:0;top:0;max-width:none;max-height:none;transform-origin:0 0;pointer-events:none;opacity:.85';
+  let pane=map.getPane('overlayPane');pane.appendChild(image);
+  function redraw(){
+   if(!image.naturalWidth||!image.naturalHeight)return;
+   let p0=map.latLngToLayerPoint(corners[0]),p1=map.latLngToLayerPoint(corners[1]),p2=map.latLngToLayerPoint(corners[2]);
+   let w=image.naturalWidth,h=image.naturalHeight;
+   image.style.transform='matrix('+((p1.x-p0.x)/w)+','+((p1.y-p0.y)/w)+','+((p2.x-p0.x)/h)+','+((p2.y-p0.y)/h)+','+p0.x+','+p0.y+')';
+  }
+  image.onload=redraw;
+  image.onerror=()=>onStatus('Erro ao carregar imagem KAP');
+  map.on('zoomend moveend viewreset',redraw);
+  kapLayer.on('remove',()=>{map.off('zoomend moveend viewreset',redraw);image.remove()});
+  map.fitBounds(bounds,{padding:[15,15]});
+  $('mapname').textContent=c.name+' · RMS '+c.rmsPixels.toFixed(2)+' px';
+  screen('mapScreen');
+  onStatus('Transformação afim validada nos pontos REF; não usar para navegação');
+ }catch(e){onStatus('Falha KAP: '+e.message)}
+}
 function onCharts(s){let files=JSON.parse(s),list=$('files');list.replaceChildren();if(!files.length){list.textContent='Nenhuma imagem importada.';return}
 for(let c of files){let row=document.createElement('div'),label=document.createElement('span'),btn=document.createElement('button');row.className='file';label.textContent=c.name;btn.textContent='Abrir no mapa';btn.onclick=()=>openChart(c);row.append(label,btn);list.append(row)}}
 function openChart(c){let im=$('chartImage');im.onload=()=>{im.style.display='block';$('empty').style.display='none';fit()};im.onerror=()=>onStatus('Não foi possível abrir a imagem');im.src='https://nautibr.local/chart?id='+encodeURIComponent(c.id);$('mapname').textContent=c.name;screen('mapScreen')}
