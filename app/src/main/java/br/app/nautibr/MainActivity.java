@@ -163,19 +163,7 @@ public class MainActivity extends Activity {
     }catch(Exception ignored){}
     String lower=name.toLowerCase(Locale.ROOT);
     if(lower.endsWith(".zip")){
-     try(ZipInputStream zip=new ZipInputStream(getContentResolver().openInputStream(uri))){
-      ZipEntry entry;int entries=0;
-      while((entry=zip.getNextEntry())!=null){
-       if(++entries>100)throw new IOException("ZIP com entradas demais");
-       if(entry.isDirectory())continue;
-       String leaf=new File(entry.getName().replace('\\','/')).getName();
-       if(req==43 && isGeo(leaf)){saveGeo(zip,name+" / "+leaf);count++;}
-       else if(isKap(leaf)){saveKap(zip,name+" / "+leaf);count++;}
-       else if(isBsb(leaf)){saveBsb(zip,name+" / "+leaf);count++;}
-
-       else if(req==PICK && isImage(leaf)){saveImage(zip,name+" / "+leaf);count++;}
-      }
-     }
+     count+=importChartPackage(uri,name,req);
     }else if((lower.endsWith(".tif")||lower.endsWith(".tiff"))){errors.add(name+": GeoTIFF não suportado");}
     else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}
     else if(isBsb(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveBsb(in,name);count++;}}
@@ -187,8 +175,100 @@ public class MainActivity extends Activity {
 
   }).start();
  }
+ int importChartPackage(Uri uri,String packageName,int req)throws Exception{
+  File staged=File.createTempFile("nautibr-package-", ".zip",getCacheDir());
+  File tempDir=new File(getCacheDir(),"nautibr-"+UUID.randomUUID().toString());
+  tempDir.mkdirs();
+  try{
+   java.security.MessageDigest digest=java.security.MessageDigest.getInstance("SHA-256");
+   try(InputStream input=getContentResolver().openInputStream(uri);
+       OutputStream output=new FileOutputStream(staged)){
+    byte[] buf=new byte[32768];int n;long total=0;
+    while((n=input.read(buf))!=-1){
+     total+=n;if(total>350_000_000L)throw new IOException("ZIP maior que 350 MB");
+     digest.update(buf,0,n);output.write(buf,0,n);
+    }
+   }
+   StringBuilder hash=new StringBuilder();
+   for(byte b:digest.digest())hash.append(String.format(Locale.US,"%02x",b&255));
+   String packageId=hash.toString();
+   File manifest=new File(charts,packageId+".package.json");
+   if(manifest.exists())return 0;
+   LinkedHashMap<String,File> kaps=new LinkedHashMap<>();
+   LinkedHashMap<String,File> bsbs=new LinkedHashMap<>();
+   LinkedHashMap<String,File> geos=new LinkedHashMap<>();
+   int entries=0;long unpacked=0;
+   try(ZipInputStream zip=new ZipInputStream(new FileInputStream(staged))){
+    ZipEntry entry;
+    while((entry=zip.getNextEntry())!=null){
+     if(++entries>500)throw new IOException("ZIP com mais de 500 entradas");
+     if(entry.isDirectory())continue;
+     String leaf=new File(entry.getName().replace('\\\\','/')).getName();
+     String key=leaf.toLowerCase(Locale.ROOT);
+     if(!isKap(key)&&!isBsb(key)&&!(req==43&&isGeo(key)))continue;
+     if(kaps.containsKey(key)||bsbs.containsKey(key)||geos.containsKey(key))
+      throw new IOException("Nome de arquivo duplicado no ZIP: "+leaf);
+     File file=new File(tempDir,UUID.randomUUID().toString());
+     try(OutputStream output=new FileOutputStream(file)){
+      byte[] buf=new byte[32768];int n;long fileSize=0;
+      while((n=zip.read(buf))!=-1){
+       unpacked+=n;fileSize+=n;
+       if(unpacked>800_000_000L||fileSize>350_000_000L)throw new IOException("ZIP descompactado excede limite");
+       output.write(buf,0,n);
+      }
+     }
+     if(isKap(key))kaps.put(key,file);
+     else if(isBsb(key))bsbs.put(key,file);
+     else geos.put(key,file);
+    }
+   }
+   // Catalogs are parsed first, independent of entry order in the ZIP.
+   JSONArray catalogs=new JSONArray(),chartsInPackage=new JSONArray();
+   LinkedHashMap<String,JSONArray> referencedBy=new LinkedHashMap<>();
+   int count=0;
+   for(Map.Entry<String,File> e:bsbs.entrySet()){
+    String content=new String(java.nio.file.Files.readAllBytes(e.getValue().toPath()),"ISO-8859-1");
+    JSONArray refs=kapNamesInBsb(content);
+    for(int i=0;i<refs.length();i++){
+     String key=new File(refs.getString(i).replace('\\\\','/')).getName().toLowerCase(Locale.ROOT);
+     if(!referencedBy.containsKey(key))referencedBy.put(key,new JSONArray());
+     referencedBy.get(key).put(e.getKey());
+    }
+    try(InputStream in=new FileInputStream(e.getValue())){saveBsb(in,packageName+" / "+e.getKey(),packageId,refs);}
+    catalogs.put(new JSONObject().put("file",e.getKey()).put("references",refs));count++;
+   }
+   for(Map.Entry<String,File> e:kaps.entrySet()){
+    try(InputStream in=new FileInputStream(e.getValue())){saveKap(in,packageName+" / "+e.getKey());}
+    chartsInPackage.put(new JSONObject().put("file",e.getKey())
+      .put("catalogs",referencedBy.containsKey(e.getKey())?referencedBy.get(e.getKey()):new JSONArray()));
+    count++;
+   }
+   for(Map.Entry<String,File> e:geos.entrySet()){
+    try(InputStream in=new FileInputStream(e.getValue())){saveGeo(in,packageName+" / "+e.getKey());}
+    count++;
+   }
+   JSONObject record=new JSONObject().put("name",packageName).put("id",packageId)
+     .put("catalogs",catalogs).put("charts",chartsInPackage);
+   try(OutputStream out=new FileOutputStream(manifest)){out.write(record.toString().getBytes("UTF-8"));}
+   return count;
+  }finally{
+   staged.delete();
+   File[] files=tempDir.listFiles();if(files!=null)for(File file:files)file.delete();
+   tempDir.delete();
+  }
+ }
+ JSONArray kapNamesInBsb(String content){
+  JSONArray names=new JSONArray();HashSet<String> seen=new HashSet<>();
+  java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?i)([A-Za-z0-9_./\\\\-]+\\\\.kap)").matcher(content);
+  while(m.find()){
+   String file=new File(m.group(1).replace('\\\\','/')).getName();
+   if(seen.add(file.toLowerCase(Locale.ROOT)))names.put(file);
+  }
+  return names;
+ }
  boolean isBsb(String name){return name.toLowerCase(Locale.ROOT).endsWith(".bsb");}
- void saveBsb(InputStream in,String name)throws Exception{
+ void saveBsb(InputStream in,String name)throws Exception{saveBsb(in,name,"",null);}
+ void saveBsb(InputStream in,String name,String packageId,JSONArray knownRefs)throws Exception{
   ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buffer=new byte[8192];int n;
   while((n=in.read(buffer))!=-1){
    if(out.size()+n>1_000_000)throw new IOException("Catálogo BSB maior que 1 MB");
@@ -200,7 +280,7 @@ public class MainActivity extends Activity {
   JSONArray references=new JSONArray();
   java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?im)^\\s*(?:KAP|FN|FILE)\\s*[/=:,]\\s*([^,\\s]+\\.kap)").matcher(content);
   while(m.find())references.put(m.group(1));
-  JSONObject o=new JSONObject().put("name",name).put("format","BSB catalog").put("kapReferences",references);
+  JSONObject o=new JSONObject().put("name",name).put("format","BSB catalog").put("kapReferences",references).put("packageId",packageId);
   String id=UUID.randomUUID().toString().replace("-","")+".bsb.json";
   try(OutputStream file=new FileOutputStream(new File(charts,id))){file.write(o.toString().getBytes("UTF-8"));}
  }
