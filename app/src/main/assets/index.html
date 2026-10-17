@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 255px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:5px}#mapScreen>div:nth-of-type(3){flex-wrap:wrap}#mapScreen>div:nth-of-type(3) button{flex:1;min-width:90px}</style></head>
-<body><header><strong>NautiBR · build 53</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 54</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -27,7 +27,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <div style="display:flex;gap:6px;flex-wrap:wrap"><input id="aisUrl" value="wss://stream.aisstream.io/v0/stream" readonly style="flex:1;min-width:220px"><input id="aisKey" type="text" autocomplete="off" spellcheck="false" placeholder="AISStream API Key" style="flex:1;min-width:180px"></div>
 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><label>Latitude <input id="aisLat" type="number" step="any" value="-22.970209043630273" style="width:135px"></label><label>Longitude <input id="aisLon" type="number" step="any" value="-43.406313076990074" style="width:135px"></label><label>Raio (km) <input id="aisRadius" type="number" min="1" max="300" value="60" style="width:70px"></label></div>
 <div style="display:flex;gap:6px;margin-top:6px"><button onclick="startAisInternet()">Conectar AISStream</button><button onclick="stopAisInternet()">Desconectar internet</button><button onclick="forgetAisKey()">Apagar chave</button></div>
-<p id="aisStatus">AIS desconectado</p><details open><summary>Diagnóstico AISStream</summary><pre id="aisDiagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#081521;padding:10px;border-radius:8px;font-size:12px;max-height:260px;overflow:auto">Nenhum evento recebido</pre><p style="font-size:12px">A API exige conexão por servidor/backend, não diretamente por navegador/WebView. <a style="color:#8ed9ff" href="https://aisstream.io/documentation/">Documentação AISStream</a></p></details>
+<p id="aisStatus">AIS desconectado</p><details open><summary>Diagnóstico AISStream</summary><pre id="aisDiagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#081521;padding:10px;border-radius:8px;font-size:12px;max-height:260px;overflow:auto">Nenhum evento recebido</pre><p style="font-size:12px">Conexão executada pelo cliente WebSocket nativo do Android, sem usar WebView para a rede. <a style="color:#8ed9ff" href="https://aisstream.io/documentation/">Documentação AISStream</a></p></details>
 <div style="display:flex;gap:8px"><button onclick="screen('mapScreen')">Ver alvos no mapa</button><button onclick="clearAis()">Limpar alvos</button></div>
 <p id="aisCount">0 alvos</p>
 <p class="warning">Posições AIS podem estar atrasadas, incorretas ou ausentes. Não utilizar para evitar colisões ou navegação operacional.</p>
@@ -216,20 +216,14 @@ function startAisInternet(){
  localStorage.setItem('aisStreamArea',JSON.stringify({lat,lon,radius}));
  const deltaLat=radius/111.32,deltaLon=radius/(111.32*Math.max(.01,Math.cos(lat*Math.PI/180)));
  const box=[[Math.max(-90,lat-deltaLat),Math.max(-180,lon-deltaLon)],[Math.min(90,lat+deltaLat),Math.min(180,lon+deltaLon)]];
- aisLog('WebSocket: conectando a '+$('aisUrl').value+' (conexão WebView não autorizada pela API; backend necessário)');
- const ws=new WebSocket('wss://stream.aisstream.io/v0/stream');
- aisSocketWeb=ws;
- ws.onopen=()=>{
-  if(aisSocketWeb!==ws)return;
-  const subscription={APIKey:key,BoundingBoxes:[box],FilterMessageTypes:['PositionReport','StandardClassBPositionReport','ExtendedClassBPositionReport']};
-  aisLog('Assinatura enviada: '+safeAisPayload(subscription));
-  ws.send(JSON.stringify(subscription));
-  aisMessage('AISStream conectado; aguardando posições');
- };
- ws.onmessage=e=>{
-  if(aisSocketWeb!==ws)return;
+ aisLog('Transporte: Android Java / OkHttp WebSocket nativo');
+ aisLog('Assinatura: '+safeAisPayload({APIKey:key,BoundingBoxes:[box],FilterMessageTypes:['PositionReport','StandardClassBPositionReport','ExtendedClassBPositionReport']}));
+ Native.connectAISStream(key,lat,lon,radius);
+ aisMessage('AISStream: iniciando cliente Android nativo');
+}
+function onAisStreamMessage(message){
   try{
-   const d=JSON.parse(e.data);
+   const d=JSON.parse(message);
    if(d.MessageType==='SubscriptionConfirmation'){aisMessage('Assinatura confirmada');aisLog('Confirmação: '+safeAisPayload(d));return}
    if(d.error||d.Error||d.MessageType==='Error'){aisMessage('Erro AISStream: '+String(d.error||d.Error||JSON.stringify(d.Message||d)).slice(0,300));aisLog('Erro recebido: '+safeAisPayload(d));return}
    if(!d.MessageType){aisLog('Evento sem MessageType: '+safeAisPayload(d));return}
@@ -241,15 +235,12 @@ function startAisInternet(){
    const sog=Number(p.Sog),cog=Number(p.Cog),heading=Number(p.TrueHeading);
    aisTargets.set(mmsi,{mmsi,lat:latitude,lon:longitude,sog:sog>=0&&sog<102.3?sog:null,cog:cog>=0&&cog<360?cog:null,heading:heading>=0&&heading<360?heading:null,updated:Date.now(),type:'AISStream'});
    renderAis();
-  }catch(err){aisMessage('AISStream: falha ao interpretar mensagem: '+err.message);aisLog('Erro de parsing: '+err.message+'; payload (limitado): '+String(e.data).slice(0,500))}
- };
- ws.onerror=e=>{if(aisSocketWeb===ws){aisMessage('Falha WebSocket AISStream (WebView não autorizado; use backend)');aisLog('WebSocket error: '+(e.message||e.type||'sem detalhes do navegador'))}};
- ws.onclose=e=>{if(aisSocketWeb===ws){aisSocketWeb=null;aisMessage('AISStream desconectado (código '+e.code+')');aisLog('WebSocket close: código='+e.code+' motivo='+e.reason+' clean='+e.wasClean)}};
- aisMessage('Conectando ao AISStream...');
+  }catch(err){aisMessage('AISStream: falha ao interpretar mensagem: '+err.message);aisLog('Erro de parsing: '+err.message+'; payload (limitado): '+String(message).slice(0,500))}
 }
 function stopAisInternet(){
  if(aisPollTimer)clearInterval(aisPollTimer);aisPollTimer=null;
  if(aisSocketWeb){const ws=aisSocketWeb;aisSocketWeb=null;ws.close();}
+ Native.stopAISStream();
 }
 function onAisStatus(s){aisMessage(s)}
 function clearAis(){aisTargets.clear();aisFragments.clear();renderAis()}
