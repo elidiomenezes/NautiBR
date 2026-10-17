@@ -111,6 +111,13 @@ public class MainActivity extends Activity {
    Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("*/*");i.addCategory(Intent.CATEGORY_OPENABLE);
    i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,PICK);
   });}
+  @JavascriptInterface public String bsbFiles(){
+   JSONArray a=new JSONArray();File[] files=charts.listFiles();
+   if(files!=null)for(File file:files)if(file.getName().endsWith(".bsb.json"))try{
+    a.put(new JSONObject(new String(java.nio.file.Files.readAllBytes(file.toPath()),"UTF-8")));
+   }catch(Exception ignored){}
+   return a.toString();
+  }
   @JavascriptInterface public String kapFiles(){
    JSONArray a=new JSONArray();File[] files=charts.listFiles();
    if(files!=null)for(File file:files)if(file.getName().endsWith(".kap.json"))try{JSONObject o=new JSONObject(new String(java.nio.file.Files.readAllBytes(file.toPath()),"UTF-8"));a.put(o);}catch(Exception ignored){}
@@ -164,12 +171,14 @@ public class MainActivity extends Activity {
        String leaf=new File(entry.getName().replace('\\','/')).getName();
        if(req==43 && isGeo(leaf)){saveGeo(zip,name+" / "+leaf);count++;}
        else if(isKap(leaf)){saveKap(zip,name+" / "+leaf);count++;}
+       else if(isBsb(leaf)){saveBsb(zip,name+" / "+leaf);count++;}
 
        else if(req==PICK && isImage(leaf)){saveImage(zip,name+" / "+leaf);count++;}
       }
      }
     }else if((lower.endsWith(".tif")||lower.endsWith(".tiff"))){errors.add(name+": GeoTIFF não suportado");}
     else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}
+    else if(isBsb(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveBsb(in,name);count++;}}
     else if(req==43 && isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
     else if(req==PICK && isImage(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveImage(in,name);count++;}}
     else errors.add(name+": formato não suportado");
@@ -177,6 +186,23 @@ public class MainActivity extends Activity {
    status(count+" imagem(ns) importada(s). "+String.join("; ",errors));
 
   }).start();
+ }
+ boolean isBsb(String name){return name.toLowerCase(Locale.ROOT).endsWith(".bsb");}
+ void saveBsb(InputStream in,String name)throws Exception{
+  ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buffer=new byte[8192];int n;
+  while((n=in.read(buffer))!=-1){
+   if(out.size()+n>1_000_000)throw new IOException("Catálogo BSB maior que 1 MB");
+   out.write(buffer,0,n);
+  }
+  String content=out.toString("ISO-8859-1").replace("\\r","");
+  if(!content.contains("BSB/")&&!content.contains("KNP/")&&!content.contains("CHK/"))
+   throw new IOException("Cabeçalho BSB inválido: "+name);
+  JSONArray references=new JSONArray();
+  java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?im)^\\s*(?:KAP|FN|FILE)\\s*[/=:,]\\s*([^,\\s]+\\.kap)").matcher(content);
+  while(m.find())references.put(m.group(1));
+  JSONObject o=new JSONObject().put("name",name).put("format","BSB catalog").put("kapReferences",references);
+  String id=UUID.randomUUID().toString().replace("-","")+".bsb.json";
+  try(OutputStream file=new FileOutputStream(new File(charts,id))){file.write(o.toString().getBytes("UTF-8"));}
  }
  boolean isKap(String name){return name.toLowerCase(Locale.ROOT).endsWith(".kap");}
  void saveKap(InputStream in,String name)throws Exception{
