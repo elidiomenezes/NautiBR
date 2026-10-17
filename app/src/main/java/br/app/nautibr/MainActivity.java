@@ -42,7 +42,7 @@ public class MainActivity extends Activity {
     if(!"/chart".equals(uri.getPath()))return null;
     try{
      String id=uri.getQueryParameter("id");
-     if(id==null||!id.matches("[0-9a-f]{32}(?:_[0-9]+_[0-9]+)?\\.(png|jpg|jpeg|webp|tif|tiff)"))return null;
+     if(id==null||!id.matches("[0-9a-f]{32}(?:_[0-9]+_[0-9]+)?\\.(png|jpg|jpeg|webp)"))return null;
      File file=new File(charts,id);
      String type=id.endsWith(".png")?"image/png":id.endsWith(".webp")?"image/webp":(id.endsWith(".tif")||id.endsWith(".tiff"))?"image/tiff":"image/jpeg";
      return new WebResourceResponse(type,null,new FileInputStream(file));
@@ -111,12 +111,6 @@ public class MainActivity extends Activity {
    Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("*/*");i.addCategory(Intent.CATEGORY_OPENABLE);
    i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,PICK);
   });}
-  @JavascriptInterface public void listCharts(){new Thread(()->{try{
-   JSONArray a=new JSONArray();
-   File[] files=charts.listFiles();if(files!=null)for(File file:files)if(file.isFile()&&!file.getName().endsWith(".kap.json")){
-    JSONObject o=new JSONObject();o.put("id",file.getName());o.put("name",getPreferences(0).getString(file.getName(),file.getName()));a.put(o);
-   }callback("onCharts",a.toString());
-  }catch(Exception e){status(e.toString());}}).start();}
   @JavascriptInterface public String kapFiles(){
    JSONArray a=new JSONArray();File[] files=charts.listFiles();
    if(files!=null)for(File file:files)if(file.getName().endsWith(".kap.json"))try{JSONObject o=new JSONObject(new String(java.nio.file.Files.readAllBytes(file.toPath()),"UTF-8"));a.put(o);}catch(Exception ignored){}
@@ -170,7 +164,7 @@ public class MainActivity extends Activity {
        String leaf=new File(entry.getName().replace('\\','/')).getName();
        if(req==43 && isGeo(leaf)){saveGeo(zip,name+" / "+leaf);count++;}
        else if(isKap(leaf)){saveKap(zip,name+" / "+leaf);count++;}
-       else if(isTiff(leaf)){saveTiff(zip,name+" / "+leaf);count++;}
+
        else if(req==PICK && isImage(leaf)){saveImage(zip,name+" / "+leaf);count++;}
       }
      }
@@ -181,22 +175,8 @@ public class MainActivity extends Activity {
     else errors.add(name+": formato não suportado");
    }catch(Exception e){errors.add(e.getMessage());}
    status(count+" imagem(ns) importada(s). "+String.join("; ",errors));
-   new Bridge().listCharts();
+
   }).start();
- }
- boolean isTiff(String name){return name.toLowerCase(Locale.ROOT).matches(".*\\.tiff?");}
- void saveTiff(InputStream in,String name)throws Exception{
-  String id=UUID.randomUUID().toString().replace("-","")+".tif";
-  File dest=new File(charts,id);long total=0;
-  try(OutputStream out=new FileOutputStream(dest)){
-   byte[] buffer=new byte[32768];int n;
-   while((n=in.read(buffer))!=-1){total+=n;if(total>200_000_000L)throw new IOException("GeoTIFF maior que 200 MB");out.write(buffer,0,n);}
-  }catch(Exception e){dest.delete();throw e;}
-  try(InputStream check=new FileInputStream(dest)){
-   int a=check.read(),b=check.read(),c=check.read(),d=check.read();
-   if(!((a==73&&b==73&&c==42&&d==0)||(a==77&&b==77&&c==0&&d==42)||(a==73&&b==73&&c==43&&d==0)||(a==77&&b==77&&c==0&&d==43)))throw new IOException("TIFF inválido");
-  }catch(Exception e){dest.delete();throw e;}
-  getPreferences(0).edit().putString(id,name).apply();
  }
  boolean isKap(String name){return name.toLowerCase(Locale.ROOT).endsWith(".kap");}
  void saveKap(InputStream in,String name)throws Exception{
