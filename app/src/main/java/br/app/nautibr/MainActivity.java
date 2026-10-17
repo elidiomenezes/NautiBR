@@ -15,6 +15,9 @@ import java.util.zip.*;
 import java.util.*;
 import android.graphics.BitmapFactory;
 import android.graphics.Bitmap;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 
 public class MainActivity extends Activity {
  private static final int PICK=42;
@@ -48,6 +51,7 @@ public class MainActivity extends Activity {
  void callback(String fn,String value){runOnUiThread(()->web.evaluateJavascript(fn+"("+JSONObject.quote(value)+")",null));}
  void status(String s){callback("onStatus",s);}
  public class Bridge{
+  @JavascriptInterface public void copyText(String value){runOnUiThread(()->{ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("NautiBR GeoTIFF",value));});}
   @JavascriptInterface public void importCharts(){runOnUiThread(()->{
    Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("*/*");i.addCategory(Intent.CATEGORY_OPENABLE);
    i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,PICK);
