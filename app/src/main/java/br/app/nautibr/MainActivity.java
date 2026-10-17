@@ -44,7 +44,7 @@ public class MainActivity extends Activity {
      String id=uri.getQueryParameter("id");
      if(id==null||!id.matches("[0-9a-f]{32}(?:_[0-9]+_[0-9]+)?\\.(png|jpg|jpeg|webp)"))return null;
      File file=new File(charts,id);
-     String type=id.endsWith(".png")?"image/png":id.endsWith(".webp")?"image/webp":(id.endsWith(".tif")||id.endsWith(".tiff"))?"image/tiff":"image/jpeg";
+     String type=id.endsWith(".png")?"image/png":id.endsWith(".webp")?"image/webp":"image/jpeg";
      return new WebResourceResponse(type,null,new FileInputStream(file));
     }catch(Exception e){return null;}
    }
@@ -106,7 +106,7 @@ public class MainActivity extends Activity {
     finally{if(conn!=null)conn.disconnect();}
    },"ais-https").start();
   }
-  @JavascriptInterface public void copyText(String value){runOnUiThread(()->{ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("NautiBR GeoTIFF",value));});}
+  @JavascriptInterface public void copyText(String value){runOnUiThread(()->{ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("NautiBR",value));});}
   @JavascriptInterface public void importCharts(){runOnUiThread(()->{
    Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("*/*");i.addCategory(Intent.CATEGORY_OPENABLE);
    i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,PICK);
@@ -168,7 +168,7 @@ public class MainActivity extends Activity {
        else if(req==PICK && isImage(leaf)){saveImage(zip,name+" / "+leaf);count++;}
       }
      }
-    }else if(isTiff(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveTiff(in,name);count++;}}
+    }else if((lower.endsWith(".tif")||lower.endsWith(".tiff"))){errors.add(name+": GeoTIFF não suportado");}
     else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}
     else if(req==43 && isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
     else if(req==PICK && isImage(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveImage(in,name);count++;}}
