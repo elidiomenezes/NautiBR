@@ -55,7 +55,12 @@ public class MainActivity extends Activity {
     JSONObject o=new JSONObject();o.put("id",file.getName());o.put("name",getPreferences(0).getString(file.getName(),file.getName()));a.put(o);
    }callback("onCharts",a.toString());
   }catch(Exception e){status(e.toString());}}).start();}
-  @JavascriptInterface public String kapFiles(){\n   JSONArray a=new JSONArray();File[] files=charts.listFiles();\n   if(files!=null)for(File file:files)if(file.getName().endsWith(".kap.json"))try{JSONObject o=new JSONObject(new String(java.nio.file.Files.readAllBytes(file.toPath()),"UTF-8"));a.put(o);}catch(Exception ignored){}\n   return a.toString();\n  }\n  @JavascriptInterface public void importGeo(){
+  @JavascriptInterface public String kapFiles(){
+   JSONArray a=new JSONArray();File[] files=charts.listFiles();
+   if(files!=null)for(File file:files)if(file.getName().endsWith(".kap.json"))try{JSONObject o=new JSONObject(new String(java.nio.file.Files.readAllBytes(file.toPath()),"UTF-8"));a.put(o);}catch(Exception ignored){}
+   return a.toString();
+  }
+  @JavascriptInterface public void importGeo(){
    runOnUiThread(()->{
     Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
     i.setType("*/*");i.addCategory(Intent.CATEGORY_OPENABLE);
