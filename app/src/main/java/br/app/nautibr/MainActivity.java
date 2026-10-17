@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
    return a.toString();
   }
   @JavascriptInterface public String readGeo(String id){
-   if(id==null||!id.matches("[0-9a-f]{32}\\\\.geojson"))return "{}";
+   if(id==null||!id.matches("[0-9a-f]{32}\\.geojson"))return "{}";
    try{
     File f=new File(new File(getFilesDir(),"geo"),id);
     if(f.length()>5_000_000)return "{}";
@@ -100,17 +100,19 @@ public class MainActivity extends Activity {
        if(++entries>100)throw new IOException("ZIP com entradas demais");
        if(entry.isDirectory())continue;
        String leaf=new File(entry.getName().replace('\\','/')).getName();
-       if(req==43 && isGeo(leaf)){saveGeo(zip,name+" / "+leaf);count++;}\n       else if(req==PICK && isImage(leaf)){saveImage(zip,name+" / "+leaf);count++;}
+       if(req==43 && isGeo(leaf)){saveGeo(zip,name+" / "+leaf);count++;}
+       else if(req==PICK && isImage(leaf)){saveImage(zip,name+" / "+leaf);count++;}
       }
      }
-    }else if(req==43 && isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}\n    else if(req==PICK && isImage(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveImage(in,name);count++;}}
+    }else if(req==43 && isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
+    else if(req==PICK && isImage(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveImage(in,name);count++;}}
     else errors.add(name+": formato não suportado");
    }catch(Exception e){errors.add(e.getMessage());}
    status(count+" imagem(ns) importada(s). "+String.join("; ",errors));
    new Bridge().listCharts();
   }).start();
  }
- boolean isGeo(String name){return name.toLowerCase(Locale.ROOT).matches(".*\\\\.(geojson|json)");}
+ boolean isGeo(String name){return name.toLowerCase(Locale.ROOT).matches(".*\\.(geojson|json)");}
  void saveGeo(InputStream in,String name)throws Exception{
   ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buf=new byte[8192];int n;
   while((n=in.read(buf))!=-1){if(out.size()+n>5_000_000)throw new IOException("GeoJSON maior que 5 MB");out.write(buf,0,n);}
