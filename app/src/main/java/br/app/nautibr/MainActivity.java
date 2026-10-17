@@ -203,7 +203,7 @@ public class MainActivity extends Activity {
     while((entry=zip.getNextEntry())!=null){
      if(++entries>500)throw new IOException("ZIP com mais de 500 entradas");
      if(entry.isDirectory())continue;
-     String leaf=new File(entry.getName().replace('\\\\','/')).getName();
+     String leaf=new File(entry.getName().replace('\\','/')).getName();
      String key=leaf.toLowerCase(Locale.ROOT);
      if(!isKap(key)&&!isBsb(key)&&!(req==43&&isGeo(key)))continue;
      if(kaps.containsKey(key)||bsbs.containsKey(key)||geos.containsKey(key))
@@ -230,7 +230,7 @@ public class MainActivity extends Activity {
     String content=new String(java.nio.file.Files.readAllBytes(e.getValue().toPath()),"ISO-8859-1");
     JSONArray refs=kapNamesInBsb(content);
     for(int i=0;i<refs.length();i++){
-     String key=new File(refs.getString(i).replace('\\\\','/')).getName().toLowerCase(Locale.ROOT);
+     String key=new File(refs.getString(i).replace('\\','/')).getName().toLowerCase(Locale.ROOT);
      if(!referencedBy.containsKey(key))referencedBy.put(key,new JSONArray());
      referencedBy.get(key).put(e.getKey());
     }
@@ -259,9 +259,9 @@ public class MainActivity extends Activity {
  }
  JSONArray kapNamesInBsb(String content){
   JSONArray names=new JSONArray();HashSet<String> seen=new HashSet<>();
-  java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?i)([A-Za-z0-9_./\\\\-]+\\\\.kap)").matcher(content);
+  java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?i)([A-Za-z0-9_./\\-]+\\.kap)").matcher(content);
   while(m.find()){
-   String file=new File(m.group(1).replace('\\\\','/')).getName();
+   String file=new File(m.group(1).replace('\\','/')).getName();
    if(seen.add(file.toLowerCase(Locale.ROOT)))names.put(file);
   }
   return names;
