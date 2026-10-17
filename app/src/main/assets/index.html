@@ -3,12 +3,12 @@
 <script src="/vendor/leaflet.js"></script>
 
 <style>*{box-sizing:border-box}body{margin:0;background:#0d1824;color:#e7f0f7;font:15px system-ui,sans-serif}
-header{padding:12px 16px;background:#162b3b;display:flex;align-items:center;justify-content:space-between;gap:16px}header strong{font-size:17px;white-space:nowrap}header span{font-size:12px;text-align:right}nav{display:flex;gap:6px;padding:10px;background:#132432}
+header{padding:12px 16px;background:#162b3b;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;min-width:0}header strong{font-size:16px;white-space:normal;overflow-wrap:anywhere}header span{font-size:12px;text-align:right;flex-shrink:0}nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:10px;background:#132432}nav button{min-width:0;padding:10px 3px;font-size:12px;overflow-wrap:anywhere}
 button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b63;color:#fff;font-size:13px}nav button{flex:1}
-.screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
+.screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 255px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
-.file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR · build 50</strong><span>Cartas náuticas</span></header>
+.file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:5px}#mapScreen>div:nth-of-type(3){flex-wrap:wrap}#mapScreen>div:nth-of-type(3) button{flex:1;min-width:90px}</style></head>
+<body><header><strong>NautiBR · build 52</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -34,7 +34,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 </section>
 <div id="status"></div><script>
 const $=id=>document.getElementById(id);let map,geoLayer,kapLayer;
-const chartLayers=new Map();let chartInit=false;
+const chartLayers=new Map();let chartInit=false;let autoChartSelection=true;
 function status(s){$('status').textContent=s}
 function screen(id){for(const e of document.querySelectorAll('.screen'))e.classList.toggle('active',e.id===id);if(id==='mapScreen'&&map)setTimeout(()=>map.invalidateSize(),50)}
 function makeRow(container,name,fn){const row=document.createElement('div'),label=document.createElement('span'),btn=document.createElement('button');row.className='file';label.textContent=name;btn.textContent='Mostrar no mapa';btn.onclick=fn;row.append(label,btn);$(container).append(row)}
@@ -44,20 +44,34 @@ function toggleLayerPanel(){const p=$('layerPanel');p.style.display=p.style.disp
 function renderLayerPanel(){
  const p=$('layerPanel');p.replaceChildren();let shown=0;
  for(const [id,e] of chartLayers){
-  if(map.hasLayer(e.layer))shown++;
+  if(e.enabled)shown++;
   const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:6px;margin:5px 0';
-  const check=document.createElement('input');check.type='checkbox';check.checked=map.hasLayer(e.layer);
-  check.onchange=()=>{if(check.checked)e.layer.addTo(map);else map.removeLayer(e.layer);renderLayerPanel()};
+  const check=document.createElement('input');check.type='checkbox';check.checked=e.enabled;
+  check.onchange=()=>{e.enabled=check.checked;updateChartVisibility();renderLayerPanel()};
   const label=document.createElement('span');label.textContent=e.name;label.style.cssText='flex:1;overflow-wrap:anywhere;font-size:12px';
   const focus=document.createElement('button');focus.textContent='Ir';focus.style.padding='5px';
-  focus.onclick=()=>{if(!map.hasLayer(e.layer))e.layer.addTo(map);map.fitBounds(e.bounds);screen('mapScreen');renderLayerPanel()};
+  focus.onclick=()=>{e.enabled=true;map.fitBounds(e.bounds);updateChartVisibility();screen('mapScreen');renderLayerPanel()};
   row.append(check,label,focus);p.append(row);
  }
  $('layerCount').textContent=shown+' de '+chartLayers.size+' camadas';
 }
+function updateChartVisibility(){
+ if(!map)return;
+ const zoom=map.getZoom(),view=map.getBounds();
+ const active=[...chartLayers.values()].filter(e=>e.enabled&&e.nativeZoom!==null&&e.bounds.isValid()&&e.bounds.intersects(view));
+ const sorted=active.sort((a,b)=>a.nativeZoom-b.nativeZoom);
+ for(const e of chartLayers.values()){
+  if(!e.enabled){if(map.hasLayer(e.layer))map.removeLayer(e.layer);continue}
+  if(!map.hasLayer(e.layer))e.layer.addTo(map);
+ }
+ // Larger-scale (higher native zoom) charts are painted last so their
+ // fine details cannot be covered by a coarse overview chart.
+ for(const e of sorted)if(map.hasLayer(e.layer))e.layer.bringToFront();
+}
 function registerChart(id,name,layer,bounds){
  if(chartLayers.has(id))return chartLayers.get(id);
- const e={name,layer,bounds};chartLayers.set(id,e);layer.addTo(map);renderLayerPanel();return e;
+ const e={name,layer,bounds,enabled:true,nativeZoom:layer._kapNativeZoom??null};
+ chartLayers.set(id,e);layer.addTo(map);updateChartVisibility();renderLayerPanel();return e;
 }
 function refresh(){
  for(const id of ['kapfiles','bsbfiles','geofiles'])$(id).replaceChildren();
@@ -123,7 +137,9 @@ function openKap(c,focus=true){
   const KapGrid=L.GridLayer.extend({
    createTile(coords,done){
     const canvas=document.createElement('canvas'),size=this.getTileSize();
-    canvas.width=size.x;canvas.height=size.y;
+    const dpr=Math.min(3,Math.max(1,window.devicePixelRatio||1));
+    canvas.width=Math.round(size.x*dpr);canvas.height=Math.round(size.y*dpr);
+    canvas.style.width=size.x+"px";canvas.style.height=size.y+"px";
     const ctx=canvas.getContext('2d');
     ctx.imageSmoothingEnabled=false;
     const z=coords.z,originX=coords.x*size.x,originY=coords.y*size.y;
@@ -139,7 +155,7 @@ function openKap(c,focus=true){
     const pts=[sourceAt(originX,originY),sourceAt(originX+size.x,originY),sourceAt(originX,originY+size.y),sourceAt(originX+size.x,originY+size.y)];
     const minX=Math.min(...pts.map(p=>p[0]))-2,maxX=Math.max(...pts.map(p=>p[0]))+2;
     const minY=Math.min(...pts.map(p=>p[1]))-2,maxY=Math.max(...pts.map(p=>p[1]))+2;
-    ctx.setTransform(aa,bb,cc,dd,p0.x-originX,p0.y-originY);
+    ctx.setTransform(aa*dpr,bb*dpr,cc*dpr,dd*dpr,(p0.x-originX)*dpr,(p0.y-originY)*dpr);
     const visible=tiles.filter(t=>t.x<maxX&&t.x+t.w>minX&&t.y<maxY&&t.y+t.h>minY);
     if(!visible.length){done(null,canvas);return canvas}
     let pending=visible.length;
@@ -163,14 +179,13 @@ function openKap(c,focus=true){
   });
   const layer=new KapGrid({tileSize:256,bounds,keepBuffer:2,
    updateWhenZooming:false,updateWhenIdle:true,noWrap:true,opacity:1});
-  registerChart(id,c.name,layer,bounds);
-  if(!focus)return;
-  // Fit-to-chart is often unreadable on phones. Start near the native
-  // chart resolution (approximately one source pixel per screen pixel).
   const px0=map.project(corners[0],0),px1=map.project(corners[1],0),px2=map.project(corners[2],0);
   const scaleX=Math.hypot(px1.x-px0.x,px1.y-px0.y)/nativeW;
   const scaleY=Math.hypot(px2.x-px0.x,px2.y-px0.y)/nativeH;
   const nativeZoom=Math.log2(1/Math.max(scaleX,scaleY));
+  layer._kapNativeZoom=nativeZoom;
+  registerChart(id,c.name,layer,bounds);
+  if(!focus)return;
   const center=bounds.getCenter();
   if(Number.isFinite(nativeZoom))map.setView(center,Math.max(map.getMinZoom(),Math.min(map.getMaxZoom(),Math.floor(nativeZoom))));
   else map.fitBounds(bounds);
@@ -315,4 +330,6 @@ try{
  if(area){$('aisLat').value=area.lat;$('aisLon').value=area.lon;$('aisRadius').value=area.radius}
 }catch(e){}
 refresh();
+map.on('zoomend moveend',updateChartVisibility);
+updateChartVisibility();
 </script></body></html>
