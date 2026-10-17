@@ -22,7 +22,7 @@ public class AisService extends Service {
  public static void diagnostic(Context context,String message){
   try{android.content.SharedPreferences p=context.getSharedPreferences(DIAG,MODE_PRIVATE);
    String old=p.getString("log","");String line=new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+" "+message.replaceAll("(?i)(apikey|key)[=:][^\\s,}]+","$1=[REDACTED]");
-   String next=old+"\\n"+line;p.edit().putString("log",next.substring(Math.max(0,next.length()-16000))).commit();
+   String next=old+"\n"+line;p.edit().putString("log",next.substring(Math.max(0,next.length()-16000))).commit();
   }catch(Throwable ignored){}
  }
  public static void installCrashHandler(Context context){
@@ -92,23 +92,26 @@ public class AisService extends Service {
  @Override public int onStartCommand(Intent intent,int flags,int startId){
   if(intent==null){restore();return active?START_STICKY:START_NOT_STICKY;}
   String action=intent.getAction();diagnostic(this,"AIS onStartCommand action="+action);
-  if(ACTION_STOP.equals(action)){disconnect();stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();return START_NOT_STICKY;}
-  disconnect();
+  if(ACTION_STOP.equals(action)){disconnect();stopForeground(STOP_FOREGROUND_REMOVE);stopSelfResult(startId);return START_NOT_STICKY;}
   try{
+  if(!ACTION_STREAM.equals(action)&&!ACTION_TCP.equals(action)){stopSelfResult(startId);return START_NOT_STICKY;}
+  // Promote before any synchronous storage or network work. Avoid stopSelf races on reconnect.
+  foreground("AIS · iniciando");
+  disconnect();
   if(ACTION_STREAM.equals(action)){
    key=intent.getStringExtra("key");lat=intent.getDoubleExtra("lat",0);lon=intent.getDoubleExtra("lon",0);radius=intent.getDoubleExtra("radius",20);
-   if(key==null||key.isEmpty()||!Double.isFinite(lat)||!Double.isFinite(lon)||!Double.isFinite(radius)||radius<1||radius>300){stopSelf();return START_NOT_STICKY;}
-   mode="stream";active=true;save();foreground("AISStream · conectando");connectStream(generation,0);
+   if(key==null||key.isEmpty()||!Double.isFinite(lat)||!Double.isFinite(lon)||!Double.isFinite(radius)||radius<1||radius>300){stopForeground(STOP_FOREGROUND_REMOVE);stopSelfResult(startId);return START_NOT_STICKY;}
+   mode="stream";active=true;save();connectStream(generation,0);
   }else if(ACTION_TCP.equals(action)){
    host=intent.getStringExtra("host");port=intent.getIntExtra("port",0);
-   if(host==null||!host.matches("[a-zA-Z0-9.:-]+")||port<1||port>65535){stopSelf();return START_NOT_STICKY;}
-   mode="tcp";active=true;save();foreground("AIS TCP · conectando");connectTcp(generation);
+   if(host==null||!host.matches("[a-zA-Z0-9.:-]+")||port<1||port>65535){stopForeground(STOP_FOREGROUND_REMOVE);stopSelfResult(startId);return START_NOT_STICKY;}
+   mode="tcp";active=true;save();connectTcp(generation);
   }
   return START_STICKY;
   }catch(Throwable error){
    android.util.Log.e("NautiBR-AIS","AIS service start failed",error);diagnostic(this,"AIS service start failed: "+android.util.Log.getStackTraceString(error));
    deliver("onAisStatus","AIS: erro ao iniciar serviço: "+error.getClass().getSimpleName()+": "+error.getMessage());
-   disconnect();stopSelf();return START_NOT_STICKY;
+   disconnect();stopSelfResult(startId);return START_NOT_STICKY;
   }
  }
  private void save(){
