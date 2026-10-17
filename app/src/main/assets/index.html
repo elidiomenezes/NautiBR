@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 255px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:5px}#mapScreen>div:nth-of-type(3){flex-wrap:wrap}#mapScreen>div:nth-of-type(3) button{flex:1;min-width:90px}</style></head>
-<body><header><strong>NautiBR · build 60</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 61</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -138,7 +138,7 @@ function openKap(c,focus=true){
   const KapOverlay=L.Layer.extend({
    onAdd(m){
     this._map=m;
-    this._container=L.DomUtil.create('div','nautibr-kap-overlay',m.getPanes().overlayPane);
+    this._container=L.DomUtil.create('div','nautibr-kap-overlay leaflet-zoom-animated',m.getPanes().overlayPane);
     this._container.style.cssText='position:absolute;left:0;top:0;pointer-events:none;';
     this._images=tiles.map(t=>{
      const img=L.DomUtil.create('img','',this._container);
@@ -149,16 +149,28 @@ function openKap(c,focus=true){
      img.width=t.w;img.height=t.h;
      return {img,t};
     });
+    m.on('zoomanim',this._animateZoom,this);
     m.on('zoomend viewreset moveend',this._position,this);
     this._position();
    },
    onRemove(m){
+    m.off('zoomanim',this._animateZoom,this);
     m.off('zoomend viewreset moveend',this._position,this);
     L.DomUtil.remove(this._container);
     this._images=[];
    },
+   _animateZoom(e){
+    if(!this._map||!this._container)return;
+    // Transform already-decoded original PNGs as one composited layer.
+    // No tile redecoding, canvas copies, or network requests during zoom.
+    const m=this._map,scale=m.getZoomScale(e.zoom,m.getZoom());
+    const offset=m._latLngToNewLayerPoint(m.getBounds().getNorthWest(),e.zoom,e.center)
+      .subtract(m.latLngToLayerPoint(m.getBounds().getNorthWest()));
+    L.DomUtil.setTransform(this._container,offset,scale);
+   },
    _position(){
     if(!this._map||!this._container)return;
+    L.DomUtil.setTransform(this._container,L.point(0,0),1);
     const m=this._map;
     const p0=m.latLngToLayerPoint(corners[0]);
     const p1=m.latLngToLayerPoint(corners[1]);
@@ -329,7 +341,7 @@ function renderAis(){
  $('aisCount').textContent=count+' alvos na última hora · '+aisMessagesReceived+' mensagens / '+aisPositionsReceived+' posições recebidas';
 }
 setInterval(()=>{if(aisTargets.size)renderAis()},30000);
-if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:false,fadeAnimation:false,markerZoomAnimation:true,preferCanvas:true,maxZoom:24}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:24,maxNativeZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map)}
+if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:true,fadeAnimation:false,markerZoomAnimation:true,preferCanvas:true,maxZoom:24}).setView([-23.96,-46.3],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:24,maxNativeZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map)}
 else status('Falha ao carregar Leaflet incluído no APK');
 try{
  $('aisKey').value=localStorage.getItem('aisStreamKey')||'';
