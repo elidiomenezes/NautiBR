@@ -18,6 +18,26 @@ public class AisService extends Service {
  private static final String CHANNEL="ais_monitor",PREF="ais_background";
  private static final int NOTIFICATION=1147;
  private static volatile AisService current;
+ private static final String DIAG="ais_diagnostics";
+ public static void diagnostic(Context context,String message){
+  try{android.content.SharedPreferences p=context.getSharedPreferences(DIAG,MODE_PRIVATE);
+   String old=p.getString("log","");String line=new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss",java.util.Locale.US).format(new java.util.Date())+" "+message.replaceAll("(?i)(apikey|key)[=:][^\\s,}]+","$1=[REDACTED]");
+   String next=old+"\\n"+line;p.edit().putString("log",next.substring(Math.max(0,next.length()-16000))).commit();
+  }catch(Throwable ignored){}
+ }
+ public static void installCrashHandler(Context context){
+  final Thread.UncaughtExceptionHandler previous=Thread.getDefaultUncaughtExceptionHandler();
+  if(previous instanceof AisCrashHandler)return;
+  Thread.setDefaultUncaughtExceptionHandler(new AisCrashHandler(context.getApplicationContext(),previous));
+ }
+ private static class AisCrashHandler implements Thread.UncaughtExceptionHandler{
+  private final Context context;private final Thread.UncaughtExceptionHandler previous;
+  AisCrashHandler(Context c,Thread.UncaughtExceptionHandler p){context=c;previous=p;}
+  @Override public void uncaughtException(Thread t,Throwable e){
+   StringWriter w=new StringWriter();e.printStackTrace(new PrintWriter(w));diagnostic(context,"CRASH "+t.getName()+" "+w.toString().substring(0,Math.min(6500,w.toString().length())));
+   if(previous!=null)previous.uncaughtException(t,e);
+  }
+ }
  private final Handler handler=new Handler(Looper.getMainLooper());
  private final OkHttpClient client=new OkHttpClient.Builder().pingInterval(25,TimeUnit.SECONDS).build();
  private WebSocket ws;
@@ -48,7 +68,7 @@ public class AisService extends Service {
   }
  }
  @Override public void onCreate(){
-  super.onCreate();current=this;
+  super.onCreate();installCrashHandler(this);diagnostic(this,"AIS service onCreate Android "+Build.VERSION.SDK_INT);current=this;
   if(Build.VERSION.SDK_INT>=26){
    NotificationChannel channel=new NotificationChannel(CHANNEL,"Monitor AIS",NotificationManager.IMPORTANCE_LOW);
    getSystemService(NotificationManager.class).createNotificationChannel(channel);
@@ -65,12 +85,13 @@ public class AisService extends Service {
    .addAction(android.R.drawable.ic_menu_close_clear_cancel,"Desconectar",stopPending).build();
  }
  private void foreground(String text){
+  diagnostic(this,"foreground request: "+text);
   if(Build.VERSION.SDK_INT>=29)startForeground(NOTIFICATION,notification(text),ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
   else startForeground(NOTIFICATION,notification(text));
  }
  @Override public int onStartCommand(Intent intent,int flags,int startId){
   if(intent==null){restore();return active?START_STICKY:START_NOT_STICKY;}
-  String action=intent.getAction();
+  String action=intent.getAction();diagnostic(this,"AIS onStartCommand action="+action);
   if(ACTION_STOP.equals(action)){disconnect();stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();return START_NOT_STICKY;}
   disconnect();
   try{
@@ -85,7 +106,7 @@ public class AisService extends Service {
   }
   return START_STICKY;
   }catch(Throwable error){
-   android.util.Log.e("NautiBR-AIS","AIS service start failed",error);
+   android.util.Log.e("NautiBR-AIS","AIS service start failed",error);diagnostic(this,"AIS service start failed: "+android.util.Log.getStackTraceString(error));
    deliver("onAisStatus","AIS: erro ao iniciar serviço: "+error.getClass().getSimpleName()+": "+error.getMessage());
    disconnect();stopSelf();return START_NOT_STICKY;
   }
@@ -151,12 +172,12 @@ public class AisService extends Service {
     }
     @Override public void onFailure(WebSocket socket,Throwable err,Response response){
      if(gen!=generation)return;
-     deliver("onAisStatus","AISStream: "+err.getClass().getSimpleName()+": "+err.getMessage());
+     diagnostic(AisService.this,"WebSocket failure: "+err.getClass().getSimpleName()+": "+err.getMessage()+" HTTP="+(response==null?"none":response.code()));deliver("onAisStatus","AISStream: "+err.getClass().getSimpleName()+": "+err.getMessage());
      if(response!=null&&response.code()>=400&&response.code()<500&&response.code()!=429){deliver("onAisStatus","AISStream: erro HTTP permanente "+response.code());disconnect();stopSelf();}
      else schedule(gen,opened?0:attempt+1,()->connectStream(gen,opened?0:attempt+1));
     }
    });
-  }catch(Exception e){deliver("onAisStatus","AISStream: "+e.getMessage());schedule(gen,attempt+1,()->connectStream(gen,attempt+1));}
+  }catch(Exception e){diagnostic(this,"connectStream: "+android.util.Log.getStackTraceString(e));deliver("onAisStatus","AISStream: "+e.getMessage());schedule(gen,attempt+1,()->connectStream(gen,attempt+1));}
  }
  private void connectTcp(int gen){
   tcpThread=new Thread(()->{
