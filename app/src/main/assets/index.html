@@ -164,8 +164,9 @@ function openKap(c,focus=true){
     // Transform already-decoded original PNGs as one composited layer.
     // No tile redecoding, canvas copies, or network requests during zoom.
     const m=this._map,scale=m.getZoomScale(e.zoom,m.getZoom());
-    const offset=m._latLngToNewLayerPoint(m.getBounds().getNorthWest(),e.zoom,e.center)
-      .subtract(m.latLngToLayerPoint(m.getBounds().getNorthWest()));
+    const anchor=corners[0];
+    const offset=m._latLngToNewLayerPoint(anchor,e.zoom,e.center)
+      .subtract(m.latLngToLayerPoint(anchor).multiplyBy(scale));
     L.DomUtil.setTransform(this._container,offset,scale);
    },
    _position(){
