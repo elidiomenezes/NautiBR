@@ -30,7 +30,9 @@ public class MainActivity extends Activity {
   web.setWebViewClient(new WebViewClient(){
    @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest req){
     Uri uri=req.getUrl();
-    if(!"nautibr.local".equals(uri.getHost()))return super.shouldInterceptRequest(view,req);\n    if("/index.html".equals(uri.getPath()))try{return new WebResourceResponse("text/html","UTF-8",getAssets().open("index.html"));}catch(Exception e){return null;}\n    if(!"/chart".equals(uri.getPath()))return null;
+    if(!"nautibr.local".equals(uri.getHost()))return super.shouldInterceptRequest(view,req);
+    if("/index.html".equals(uri.getPath()))try{return new WebResourceResponse("text/html","UTF-8",getAssets().open("index.html"));}catch(Exception e){return null;}
+    if(!"/chart".equals(uri.getPath()))return null;
     try{
      String id=uri.getQueryParameter("id");
      if(id==null||!id.matches("[0-9a-f]{32}\\.(png|jpg|jpeg|webp|tif|tiff)"))return null;
@@ -107,11 +109,13 @@ public class MainActivity extends Activity {
        if(entry.isDirectory())continue;
        String leaf=new File(entry.getName().replace('\\','/')).getName();
        if(req==43 && isGeo(leaf)){saveGeo(zip,name+" / "+leaf);count++;}
-       else if(isKap(leaf)){saveKap(zip,name+" / "+leaf);count++;}\n       else if(isTiff(leaf)){saveTiff(zip,name+" / "+leaf);count++;}
+       else if(isKap(leaf)){saveKap(zip,name+" / "+leaf);count++;}
+       else if(isTiff(leaf)){saveTiff(zip,name+" / "+leaf);count++;}
        else if(req==PICK && isImage(leaf)){saveImage(zip,name+" / "+leaf);count++;}
       }
      }
-    }else if(isTiff(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveTiff(in,name);count++;}}\n    else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}
+    }else if(isTiff(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveTiff(in,name);count++;}}
+    else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}
     else if(req==43 && isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
     else if(req==PICK && isImage(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveImage(in,name);count++;}}
     else errors.add(name+": formato não suportado");
@@ -120,7 +124,7 @@ public class MainActivity extends Activity {
    new Bridge().listCharts();
   }).start();
  }
- boolean isTiff(String name){return name.toLowerCase(Locale.ROOT).matches(".*\\\\.tiff?");}
+ boolean isTiff(String name){return name.toLowerCase(Locale.ROOT).matches(".*\\.tiff?");}
  void saveTiff(InputStream in,String name)throws Exception{
   String id=UUID.randomUUID().toString().replace("-")+".tif";
   File dest=new File(charts,id);long total=0;
