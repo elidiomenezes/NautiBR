@@ -49,8 +49,10 @@ public class AisService extends Service {
  }
  @Override public void onCreate(){
   super.onCreate();current=this;
-  NotificationChannel channel=new NotificationChannel(CHANNEL,"Monitor AIS",NotificationManager.IMPORTANCE_LOW);
-  getSystemService(NotificationManager.class).createNotificationChannel(channel);
+  if(Build.VERSION.SDK_INT>=26){
+   NotificationChannel channel=new NotificationChannel(CHANNEL,"Monitor AIS",NotificationManager.IMPORTANCE_LOW);
+   getSystemService(NotificationManager.class).createNotificationChannel(channel);
+  }
  }
  private Notification notification(String status){
   Intent open=new Intent(this,MainActivity.class);
@@ -71,6 +73,7 @@ public class AisService extends Service {
   String action=intent.getAction();
   if(ACTION_STOP.equals(action)){disconnect();stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();return START_NOT_STICKY;}
   disconnect();
+  try{
   if(ACTION_STREAM.equals(action)){
    key=intent.getStringExtra("key");lat=intent.getDoubleExtra("lat",0);lon=intent.getDoubleExtra("lon",0);radius=intent.getDoubleExtra("radius",20);
    if(key==null||key.isEmpty()||!Double.isFinite(lat)||!Double.isFinite(lon)||!Double.isFinite(radius)||radius<1||radius>300){stopSelf();return START_NOT_STICKY;}
@@ -81,6 +84,11 @@ public class AisService extends Service {
    mode="tcp";active=true;save();foreground("AIS TCP · conectando");connectTcp(generation);
   }
   return START_STICKY;
+  }catch(Throwable error){
+   android.util.Log.e("NautiBR-AIS","AIS service start failed",error);
+   deliver("onAisStatus","AIS: erro ao iniciar serviço: "+error.getClass().getSimpleName()+": "+error.getMessage());
+   disconnect();stopSelf();return START_NOT_STICKY;
+  }
  }
  private void save(){
   getSharedPreferences(PREF,MODE_PRIVATE).edit().putBoolean("active",active).putString("mode",mode)
