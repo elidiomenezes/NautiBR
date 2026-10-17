@@ -498,7 +498,17 @@ function renderAis(){
  aisLayer.clearLayers();
  const rows=$('aisTargetRows');if(rows)rows.replaceChildren();
  const now=Date.now();let count=0;
- const trailIds=new Set([...aisTargets.values()].filter(t=>now-t.updated<=AIS_HISTORY_MS&&(aisTrailPoints.get(t.mmsi)||[]).length>=2).sort((a,b)=>b.updated-a.updated).slice(0,AIS_VISIBLE_TRAILS).map(t=>t.mmsi));
+ const trailCandidates=[...aisTargets.values()].filter(t=>now-t.updated<=AIS_HISTORY_MS).map(t=>{
+  const points=aisTrailPoints.get(t.mmsi)||[];
+  let meters=0;
+  for(let i=1;i<points.length;i++){
+   const [a,b]=points[i-1],[c,d]=points[i];
+   const dy=(c-a)*111195,dx=(d-b)*111195*Math.cos(c*Math.PI/180);
+   meters+=Math.hypot(dx,dy);
+  }
+  return {t,points,meters};
+ }).filter(x=>x.points.length>=2&&x.meters>=10).sort((a,b)=>b.t.updated-a.t.updated);
+ const trailIds=new Set(trailCandidates.slice(0,AIS_VISIBLE_TRAILS).map(x=>x.t.mmsi));
  for(const [id,t] of aisTargets){
   if(now-t.updated>AIS_HISTORY_MS){aisTargets.delete(id);aisTrailPoints.delete(id);aisRawData.delete(id);continue}
   if(!Number.isFinite(t.lat)||!Number.isFinite(t.lon))continue;
