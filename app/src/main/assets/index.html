@@ -287,7 +287,7 @@ function openKap(c,focus=true){
 const aisTargets=new Map(),aisNames=new Map(),aisFragments=new Map();
 const AIS_HISTORY_MS=60*60*1000;let aisMessagesReceived=0,aisPositionsReceived=0;
 let aisLayer=null,aisPollTimer=null,selectedAisMmsi=null,aisPopupExpanded=false,aisRendering=false;
-const AIS_TRAIL_MAX=5,AIS_VISIBLE_TRAILS=5,aisTrailPoints=new Map(),aisRawData=new Map();
+const AIS_TRAIL_MAX=5,aisTrailPoints=new Map(),aisRawData=new Map();
 function recordAisTarget(t,raw){
  const id=t.mmsi,old=aisTrailPoints.get(id)||[],last=old[old.length-1];
  if(!last||last[0]!==t.lat||last[1]!==t.lon)old.push([t.lat,t.lon]);
@@ -498,17 +498,7 @@ function renderAis(){
  aisLayer.clearLayers();
  const rows=$('aisTargetRows');if(rows)rows.replaceChildren();
  const now=Date.now();let count=0;
- const trailCandidates=[...aisTargets.values()].filter(t=>now-t.updated<=AIS_HISTORY_MS).map(t=>{
-  const points=aisTrailPoints.get(t.mmsi)||[];
-  let meters=0;
-  for(let i=1;i<points.length;i++){
-   const [a,b]=points[i-1],[c,d]=points[i];
-   const dy=(c-a)*111195,dx=(d-b)*111195*Math.cos(c*Math.PI/180);
-   meters+=Math.hypot(dx,dy);
-  }
-  return {t,points,meters};
- }).filter(x=>x.points.length>=2&&x.meters>=10).sort((a,b)=>b.t.updated-a.t.updated);
- const trailIds=new Set(trailCandidates.slice(0,AIS_VISIBLE_TRAILS).map(x=>x.t.mmsi));
+
  for(const [id,t] of aisTargets){
   if(now-t.updated>AIS_HISTORY_MS){aisTargets.delete(id);aisTrailPoints.delete(id);aisRawData.delete(id);continue}
   if(!Number.isFinite(t.lat)||!Number.isFinite(t.lon))continue;
@@ -517,7 +507,7 @@ function renderAis(){
   const hasVector=Number.isFinite(cog)&&cog>=0&&cog<360&&Number.isFinite(sog)&&sog>=0;
   const desc='MMSI '+id+'<br>Lat/Lon: '+t.lat.toFixed(5)+', '+t.lon.toFixed(5)+'<br>SOG: '+(Number.isFinite(sog)?sog.toFixed(1):'—')+' kn · COG: '+(Number.isFinite(cog)?cog.toFixed(0):'—')+'°<br>Atualizado há '+Math.floor((now-t.updated)/1000)+' s';
   const trail=aisTrailPoints.get(id)||[];
-  if(trailIds.has(id)&&trail.length>=2)L.polyline(trail,{pane:'nautiNav',color:'#ff9500',weight:2,opacity:.65,interactive:false,dashArray:'4 4'}).addTo(aisLayer);
+  if(trail.length>=2)L.polyline(trail,{pane:'nautiNav',color:'#ff9500',weight:2,opacity:.65,interactive:false,dashArray:'4 4'}).addTo(aisLayer);
   const marker=L.circleMarker(point,{pane:'nautiNav',radius:selectedAisMmsi===id?10:7,color:'#fff',weight:2,fillColor:'#ff9500',fillOpacity:1}).addTo(aisLayer);
   marker.bindPopup(aisDetailHtml(t),{autoPan:true,maxWidth:340,className:'ais-popup'});marker.on('popupopen',()=>loadAisPhoto(id));
   marker.on('click',()=>{if(selectedAisMmsi===id){selectedAisMmsi=null;aisPopupExpanded=false;}else{selectedAisMmsi=id;aisPopupExpanded=false;}renderAis();});
