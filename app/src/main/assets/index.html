@@ -8,7 +8,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 .screen{display:none;padding:12px}.screen.active{display:block}#map{height:calc(100dvh - 220px);min-height:260px;background:#d7e5e8;border-radius:8px}
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px}</style></head>
-<body><header><strong>NautiBR · build 39</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 40</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="Native.openNavy()">Site da Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Mapa de Santos</div><div id="map"></div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -34,13 +34,18 @@ function refresh(){
  try{Native.listCharts()}catch(e){}
 }
 function onCharts(s){
- $('tifffiles').replaceChildren();
- try{for(const c of JSON.parse(s).filter(x=>/\\.tiff?$/i.test(x.id))){
-  const row=document.createElement('div'),label=document.createElement('span'),show=document.createElement('button'),diag=document.createElement('button');
-  row.className='file';label.textContent=c.name;show.textContent='Mapa';diag.textContent='Diagnóstico';
-  show.onclick=()=>openTiff(c);diag.onclick=()=>diagnoseTiff(c);
-  row.append(label,show,diag);$('tifffiles').append(row);
- }}catch(e){status(e.message)}
+ const list=$('tifffiles');list.replaceChildren();
+ try{
+  const files=JSON.parse(s);
+  const tiffs=files.filter(c=>typeof c.id==='string' && (c.id.toLowerCase().endsWith('.tif')||c.id.toLowerCase().endsWith('.tiff')));
+  for(const c of tiffs){
+   const row=document.createElement('div'),label=document.createElement('span'),show=document.createElement('button'),diag=document.createElement('button');
+   row.className='file';label.textContent=c.name;show.textContent='Mostrar no mapa';diag.textContent='Diagnóstico';
+   show.onclick=()=>openTiff(c);diag.onclick=()=>diagnoseTiff(c);
+   row.append(label,show,diag);list.append(row);
+  }
+  if(!tiffs.length){const hint=document.createElement('p');hint.textContent='Nenhum GeoTIFF salvo. Arquivos TIFF importados aparecerão aqui.';hint.style.opacity='.65';list.append(hint);}
+ }catch(e){status('Erro na lista GeoTIFF: '+e.message)}
 }
 async function diagnoseTiff(c){
  const panel=$('diagnostic'),output=$('diagnosticText');panel.style.display='block';output.value='Lendo metadados...';status('Extraindo metadados sem decodificar a imagem');
