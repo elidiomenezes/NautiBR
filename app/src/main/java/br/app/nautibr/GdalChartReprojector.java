@@ -41,10 +41,11 @@ final class GdalChartReprojector {
     R*lon[0],R*lon[1]/w,R*lon[2]/h,
     R*north[0],R*north[1]/w,R*north[2]/h
    });
-   // EPSG:3395 = WGS84 ellipsoidal Mercator; EPSG:3857 = spherical.
-   input.SetProjection(ellipsoidal?
-    "PROJCS[\"WGS 84 / World Mercator\",GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Mercator_1SP\"],PARAMETER[\"central_meridian\",0],PARAMETER[\"scale_factor\",1],PARAMETER[\"false_easting\",0],PARAMETER[\"false_northing\",0],UNIT[\"metre\",1]]":
-    "PROJCS[\"WGS 84 / Pseudo-Mercator\",GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]],PROJECTION[\"Mercator_1SP\"],PARAMETER[\"central_meridian\",0],PARAMETER[\"scale_factor\",1],PARAMETER[\"false_easting\",0],PARAMETER[\"false_northing\",0],UNIT[\"metre\",1]]");
+   // Let PROJ/GDAL provide the authoritative CRS WKT.
+   org.gdal.osr.SpatialReference srs=new org.gdal.osr.SpatialReference();
+   if(srs.ImportFromEPSG(ellipsoidal?3395:3857)!=0)
+    throw new IOException("GDAL cannot initialize source CRS");
+   input.SetProjection(srs.ExportToWkt());
    Band red=input.GetRasterBand(1),green=input.GetRasterBand(2),blue=input.GetRasterBand(3);
    int[] pixels=new int[w];
    byte[] rr=new byte[w],gg=new byte[w],bb=new byte[w];
