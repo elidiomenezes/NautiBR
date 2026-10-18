@@ -199,7 +199,7 @@ public class MainActivity extends Activity {
   }
   @JavascriptInterface public String chartImportProgress(){
    android.content.SharedPreferences p=getSharedPreferences("chart_import",MODE_PRIVATE);
-   try{return new JSONObject().put("running",p.getBoolean("running",false)).put("file",p.getString("file","")).put("percent",p.getInt("percent",0)).put("done",p.getInt("done",0)).put("total",p.getInt("total",0)).put("message",p.getString("message","")).toString();}catch(Exception e){return "{}";}
+   try{return new JSONObject().put("running",p.getBoolean("running",false)).put("file",p.getString("file","")).put("percent",p.getInt("percent",0)).put("revision",p.getInt("revision",0)).put("done",p.getInt("done",0)).put("total",p.getInt("total",0)).put("message",p.getString("message","")).toString();}catch(Exception e){return "{}";}
   }
   @JavascriptInterface public String kapFiles(){
    JSONArray a=new JSONArray();File[] files=charts.listFiles();
