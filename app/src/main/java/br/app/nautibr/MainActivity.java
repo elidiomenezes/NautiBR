@@ -197,6 +197,10 @@ public class MainActivity extends Activity {
    }catch(Exception ignored){}
    return a.toString();
   }
+  @JavascriptInterface public String chartImportProgress(){
+   android.content.SharedPreferences p=getSharedPreferences("chart_import",MODE_PRIVATE);
+   try{return new JSONObject().put("running",p.getBoolean("running",false)).put("file",p.getString("file","")).put("percent",p.getInt("percent",0)).put("done",p.getInt("done",0)).put("total",p.getInt("total",0)).put("message",p.getString("message","")).toString();}catch(Exception e){return "{}";}
+  }
   @JavascriptInterface public String kapFiles(){
    JSONArray a=new JSONArray();File[] files=charts.listFiles();
    if(files!=null)for(File file:files)if(file.getName().endsWith(".kap.json"))try{JSONObject o=new JSONObject(new String(java.nio.file.Files.readAllBytes(file.toPath()),"UTF-8"));a.put(o);}catch(Exception ignored){}
@@ -234,25 +238,10 @@ public class MainActivity extends Activity {
   ArrayList<Uri> uris=new ArrayList<>();
   if(data.getClipData()!=null)for(int i=0;i<data.getClipData().getItemCount();i++)uris.add(data.getClipData().getItemAt(i).getUri());
   else if(data.getData()!=null)uris.add(data.getData());
-  new Thread(()->{
-   int count=0;ArrayList<String> errors=new ArrayList<>();
-   for(Uri uri:uris)try{
-    String name="carta";try(android.database.Cursor c=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)){
-     if(c!=null&&c.moveToFirst())name=c.getString(0);
-    }catch(Exception ignored){}
-    String lower=name.toLowerCase(Locale.ROOT);
-    if(lower.endsWith(".zip")){
-     count+=importChartPackage(uri,name,req);
-    }else if((lower.endsWith(".tif")||lower.endsWith(".tiff"))){errors.add(name+": GeoTIFF não suportado");}
-    else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}
-    else if(isBsb(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveBsb(in,name);count++;}}
-    else if(req==43 && isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
-    else if(req==PICK && isImage(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveImage(in,name);count++;}}
-    else errors.add(name+": formato não suportado");
-   }catch(Exception e){errors.add(e.getMessage());}
-   status(count+" imagem(ns) importada(s). "+String.join("; ",errors));
+  Intent job=new Intent(this,ChartImportService.class).setAction(ChartImportService.ACTION);
+  job.putParcelableArrayListExtra("uris",uris);job.putExtra("request",req);
+  try{startForegroundService(job);}catch(Exception e){status("Não foi possível iniciar importação: "+e.getMessage());}
 
-  }).start();
  }
  int importChartPackage(Uri uri,String packageName,int req)throws Exception{
   File staged=File.createTempFile("nautibr-package-", ".zip",getCacheDir());
