@@ -226,7 +226,8 @@ function openKap(c,focus=true){
    const north=Math.max(...corners.map(p=>p.lat)),south=Math.min(...corners.map(p=>p.lat));
    const mercY=lat=>Math.log(Math.tan(Math.PI/4+lat*Math.PI/360));
    const top=mercY(north),bottom=mercY(south);
-   const outW=nativeW,outH=nativeH;
+   const downsample=Math.min(1,3072/Math.max(nativeW,nativeH));
+   const outW=Math.max(1,Math.round(nativeW*downsample)),outH=Math.max(1,Math.round(nativeH*downsample));
    const source=tiles.map(t=>({t,img:null,loaded:false}));
    const Layer=L.Layer.extend({
     onAdd(m){
@@ -253,9 +254,10 @@ function openKap(c,focus=true){
     _render(){
      if(!this._map||this._source.some(v=>!v.loaded))return;
      const e=Math.sqrt(0.0066943799901413165),lonScale=(east-west)*Math.PI/180;
+     const tileIndex=new Map(this._source.map(v=>[Math.floor(v.t.x/1024)+','+Math.floor(v.t.y/512),v]));
      const sourceAt=(sx,sy)=>{
       if(sx<0||sy<0||sx>=nativeW||sy>=nativeH)return null;
-      for(const v of this._source){const t=v.t;if(v.data&&sx>=t.x&&sx<t.x+t.w&&sy>=t.y&&sy<t.y+t.h){
+      const v=tileIndex.get(Math.floor(sx/1024)+','+Math.floor(sy/512));if(v){const t=v.t;if(v.data&&sx>=t.x&&sx<t.x+t.w&&sy>=t.y&&sy<t.y+t.h){
        const ix=Math.floor(sx-t.x),iy=Math.floor(sy-t.y),k=(iy*t.w+ix)*4;return [v.data[k],v.data[k+1],v.data[k+2],v.data[k+3]];
       }}return null;
      };
