@@ -11,7 +11,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 </style></head>
 <body><header><strong>NautiBR · build 88</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
-<section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div><div id="ownStatus" style="font-size:12px;padding:5px 0">GPS: aguardando posição</div>
+<section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button id="layerToggleButton" onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div><div id="ownStatus" style="font-size:12px;padding:5px 0">GPS: aguardando posição</div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
 <p class="warning">Visualizador experimental. Não usar para navegação real.</p></section>
 <section class="screen" id="importScreen"><h3>Importar cartas</h3>
@@ -56,6 +56,8 @@ setInterval(pollChartImport,700);
 function onStatus(s){status(s);refresh();if(s.includes("imagem(ns) importada(s)")){const count=parseInt(s,10);if(count>0){screen('mapScreen');setTimeout(()=>{fitKap();updateChartVisibility()},100)}}}
 function onGeoImported(s){refresh()}
 function toggleLayerPanel(){const p=$('layerPanel');p.style.display=p.style.display==='none'?'block':'none';renderLayerPanel()}
+function isLargeKap(c){const a=c.corners||[];if(a.length<2)return false;const lat=a.map(p=>Number(p[0]));return Math.max(...lat)-Math.min(...lat)>5;}
+const largeKapAlerts=new Set();
 function renderLayerPanel(){
  const p=$('layerPanel');p.replaceChildren();let shown=0;
  for(const [id,e] of chartLayers){
@@ -63,12 +65,14 @@ function renderLayerPanel(){
   const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:6px;margin:5px 0';
   const check=document.createElement('input');check.type='checkbox';check.checked=e.enabled;
   check.onchange=()=>{e.enabled=check.checked;updateChartVisibility();renderLayerPanel()};
-  const label=document.createElement('span');label.textContent=e.name;label.style.cssText='flex:1;overflow-wrap:anywhere;font-size:12px';
+  const label=document.createElement('span');label.textContent=e.name+(e.largeKap?' · PROJEÇÃO NÃO VALIDADA':'');label.style.cssText='flex:1;overflow-wrap:anywhere;font-size:12px'+(e.largeKap?';color:#ff5555;font-weight:bold':'');
   const focus=document.createElement('button');focus.textContent='Ir';focus.style.padding='5px';
   focus.onclick=()=>{e.enabled=true;map.fitBounds(e.bounds);updateChartVisibility();screen('mapScreen');renderLayerPanel()};
   row.append(check,label,focus);p.append(row);
  }
  $('layerCount').textContent=shown+' de '+chartLayers.size+' camadas';
+ const warnings=[...chartLayers.values()].filter(e=>e.largeKap).length;
+ const toggle=$('layerToggleButton');if(toggle){toggle.style.background=warnings?'#b4232d':'';toggle.style.color=warnings?'#fff':'';toggle.title=warnings?warnings+' carta(s) grande(s) com projeção não validada':'';}
 }
 function chartCoverageArea(bounds){
  if(!bounds||!bounds.isValid())return Number.POSITIVE_INFINITY;
@@ -91,14 +95,16 @@ function updateChartVisibility(){
 
 function registerChart(id,name,layer,bounds){
  if(chartLayers.has(id))return chartLayers.get(id);
- const e={name,layer,bounds,enabled:true,nativeZoom:layer._kapNativeZoom??null};
+ const e={name,layer,bounds,enabled:!layer._largeKap,largeKap:!!layer._largeKap,nativeZoom:layer._kapNativeZoom??null};
  chartLayers.set(id,e);layer.addTo(map);updateChartVisibility();renderLayerPanel();return e;
 }
 function refresh(){
  for(const id of ['kapfiles','bsbfiles','geofiles'])$(id).replaceChildren();
  try{
   for(const c of JSON.parse(Native.kapFiles())){
-   makeRow('kapfiles',c.name+(c.reducedGeoreferenceAccuracy?' ⚠ precisão de georreferenciamento reduzida':''),()=>openKap(c,true));
+   const large=isLargeKap(c);
+   makeRow('kapfiles',c.name+(large?' ⚠ CARTA GRANDE: PROJEÇÃO NÃO VALIDADA (desativada)':'')+(c.reducedGeoreferenceAccuracy?' ⚠ precisão de georreferenciamento reduzida':''),()=>openKap(c,true));
+   if(large&&!largeKapAlerts.has(c.id)){largeKapAlerts.add(c.id);alert('Carta importada: '+c.name+'\\n\\nEsta carta cobre mais de 5° de latitude. Sua projeção pode causar deslocamentos significativos no mapa.\\n\\nA camada ficará DESATIVADA por padrão. Ative-a manualmente em Camadas, somente para inspeção.');}
    if(map&&!chartLayers.has('kap:'+c.id))openKap(c,false);
   }
  }catch(e){status('Cartas KAP: '+e.message)}
@@ -188,7 +194,7 @@ function openKap(c,focus=true){
   const id="kap:"+c.id;
   if(chartLayers.has(id)){
    const e=chartLayers.get(id);
-   if(focus){if(!map.hasLayer(e.layer))e.layer.addTo(map);map.fitBounds(e.bounds);screen("mapScreen");renderLayerPanel()}
+   if(focus){e.enabled=true;updateChartVisibility();map.fitBounds(e.bounds);screen("mapScreen");renderLayerPanel()}
    return;
   }
   const corners=c.corners.map(p=>L.latLng(p[0],p[1]));
@@ -316,12 +322,14 @@ function openKap(c,focus=true){
    }
   });
   const layer=new KapOverlay();
+  layer._largeKap=isLargeKap(c);
   const px0=map.project(corners[0],0),px1=map.project(corners[1],0),px2=map.project(corners[2],0);
   const scaleX=Math.hypot(px1.x-px0.x,px1.y-px0.y)/nativeW;
   const scaleY=Math.hypot(px2.x-px0.x,px2.y-px0.y)/nativeH;
   const nativeZoom=Math.log2(1/Math.max(scaleX,scaleY));
   layer._kapNativeZoom=nativeZoom;
   registerChart(id,c.name,layer,bounds);
+  if(focus){chartLayers.get(id).enabled=true;updateChartVisibility();}
   if(!focus)return;
   const center=bounds.getCenter();
   if(Number.isFinite(nativeZoom))map.setView(center,Math.max(map.getMinZoom(),Math.min(map.getMaxZoom(),Math.floor(nativeZoom))));
