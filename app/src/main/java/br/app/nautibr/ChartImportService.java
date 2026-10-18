@@ -327,6 +327,8 @@ public class ChartImportService extends Service {
    if(!Double.isFinite(latitude)||!Double.isFinite(longitude)||Math.abs(latitude)>85||Math.abs(longitude)>180)throw new IOException("Coordenadas inválidas");
    corners.put(new JSONArray().put(latitude).put(longitude));
   }
+  diag("KAP metadata name="+name+" size="+width+"x"+height+" tiles="+tiles.length()+" rms="+rms+" maxError="+maxPixelError+" ellipsoidal="+ellipsoidal+" corners="+corners.toString());
+  for(int ti=0;ti<tiles.length();ti++){JSONObject t=tiles.getJSONObject(ti);String tileId=t.optString("id");File tileFile=new File(charts,tileId);if(ti<5||!tileFile.isFile())diag("TILE "+ti+" name="+tileId+" exists="+tileFile.isFile()+" bytes="+(tileFile.isFile()?tileFile.length():0));}
   JSONObject meta=new JSONObject();meta.put("id",id+".png");meta.put("name",name);meta.put("corners",corners);meta.put("tiles",tiles);
   meta.put("originalWidth",width);meta.put("originalHeight",height);meta.put("previewWidth",width);meta.put("previewHeight",height);
   meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);meta.put("ellipsoidalMercator",ellipsoidal);meta.put("mercatorLongitude",new JSONArray(lon));meta.put("mercatorNorthing",new JSONArray(merc));meta.put("reducedGeoreferenceAccuracy",reducedGeoreferenceAccuracy);
