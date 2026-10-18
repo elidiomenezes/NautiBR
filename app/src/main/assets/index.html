@@ -195,9 +195,7 @@ function openKap(c,focus=true){
   const bounds=L.latLngBounds(corners);kapBounds=bounds;
   const nativeW=c.originalWidth||c.previewWidth,nativeH=c.originalHeight||c.previewHeight;
   if(!(nativeW>0&&nativeH>0&&corners.length>=3))throw Error('Dimensões ou referências da carta inválidas');
-  const latSpan=Math.max(...corners.map(p=>p.lat))-Math.min(...corners.map(p=>p.lat));
-  const largeReproject=!!(c.ellipsoidalMercator&&latSpan>5&&Array.isArray(c.mercatorLongitude)&&Array.isArray(c.mercatorNorthing));
-  const curved=!!(c.ellipsoidalMercator&&Array.isArray(c.mercatorLongitude)&&Array.isArray(c.mercatorNorthing))&&!largeReproject;
+  const curved=!!(c.ellipsoidalMercator&&Array.isArray(c.mercatorLongitude)&&Array.isArray(c.mercatorNorthing));
   const kapPoint=(x,y)=>{
    const v=x/nativeW,w=y/nativeH,lo=c.mercatorLongitude,me=c.mercatorNorthing;
    const longitude=(lo[0]+lo[1]*v+lo[2]*w)*180/Math.PI;
@@ -216,87 +214,6 @@ function openKap(c,focus=true){
   // One native-resolution raster coordinate system per chart.
   // Leaflet supplies the projected coordinates during zoom animation;
   // a single CSS matrix moves/scales the entire set of PNG strips.
-  // Large ellipsoidal charts are resampled to the Leaflet spherical Mercator
-  // grid, not approximated by a CSS affine matrix. Source KAP/PNG stay intact.
-  if(largeReproject){
-   const lo=c.mercatorLongitude,me=c.mercatorNorthing;
-   const det=lo[1]*me[2]-lo[2]*me[1];
-   if(Math.abs(det)<1e-14)throw Error('Transformação Mercator degenerada');
-   const west=Math.min(...corners.map(p=>p.lng)),east=Math.max(...corners.map(p=>p.lng));
-   const north=Math.max(...corners.map(p=>p.lat)),south=Math.min(...corners.map(p=>p.lat));
-   const mercY=lat=>Math.log(Math.tan(Math.PI/4+lat*Math.PI/360));
-   const top=mercY(north),bottom=mercY(south);
-   const downsample=Math.min(1,3072/Math.max(nativeW,nativeH));
-   const outW=Math.max(1,Math.round(nativeW*downsample)),outH=Math.max(1,Math.round(nativeH*downsample));
-   const source=tiles.map(t=>({t,img:null,loaded:false}));
-   const Layer=L.Layer.extend({
-    onAdd(m){
-     this._map=m;this._container=L.DomUtil.create('div','nautibr-kap-overlay',m.getPanes().overlayPane);
-     this._container.style.cssText='position:absolute;left:0;top:0;width:'+outW+'px;height:'+outH+'px;pointer-events:none;transform-origin:0 0;';
-     this._blocks=[];
-     const cw=512,ch=256;
-     for(let y=0;y<outH;y+=ch)for(let x=0;x<outW;x+=cw){
-      const w=Math.min(cw,outW-x),h=Math.min(ch,outH-y);
-      const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
-      canvas.style.cssText='position:absolute;left:'+x+'px;top:'+y+'px;width:'+w+'px;height:'+h+'px;pointer-events:none;';
-      this._container.appendChild(canvas);this._blocks.push({canvas,x,y,w,h});
-     }
-     this._source=source.map(v=>({...v}));
-     this._source.forEach(v=>{
-      const img=new Image();v.img=img;
-      img.onload=()=>{if(!this._map)return;v.loaded=true;const cv=document.createElement('canvas');cv.width=v.t.w;cv.height=v.t.h;
-       cv.getContext('2d').drawImage(img,0,0);v.data=cv.getContext('2d').getImageData(0,0,v.t.w,v.t.h).data;this._render();};
-      img.onerror=()=>{v.loaded=true;this._render();};
-      img.src='https://nautibr.local/chart?id='+encodeURIComponent(v.t.id);
-     });
-     m.on('zoomanim',this._animate,this);m.on('viewreset moveend zoomend',this._position,this);this._position();
-    },
-    _render(){
-     if(!this._map||this._source.some(v=>!v.loaded))return;
-     const e=Math.sqrt(0.0066943799901413165),lonScale=(east-west)*Math.PI/180;
-     const tileIndex=new Map(this._source.map(v=>[Math.floor(v.t.x/1024)+','+Math.floor(v.t.y/512),v]));
-     const sourceAt=(sx,sy)=>{
-      if(sx<0||sy<0||sx>=nativeW||sy>=nativeH)return null;
-      const v=tileIndex.get(Math.floor(sx/1024)+','+Math.floor(sy/512));if(v){const t=v.t;if(v.data&&sx>=t.x&&sx<t.x+t.w&&sy>=t.y&&sy<t.y+t.h){
-       const ix=Math.floor(sx-t.x),iy=Math.floor(sy-t.y),k=(iy*t.w+ix)*4;return [v.data[k],v.data[k+1],v.data[k+2],v.data[k+3]];
-      }}return null;
-     };
-     for(const b of this._blocks){
-      const ctx=b.canvas.getContext('2d'),data=ctx.createImageData(b.w,b.h),dst=data.data;
-      for(let py=0;py<b.h;py++){
-       const y=b.y+py+.5,ym=top+(bottom-top)*y/outH;
-       const phi=2*Math.atan(Math.exp(ym))-Math.PI/2;
-       const yy=ym-e/2*Math.log((1+e*Math.sin(phi))/(1-e*Math.sin(phi)));
-       for(let px=0;px<b.w;px++){
-        const x=b.x+px+.5,lambda=(west+(east-west)*x/outW)*Math.PI/180;
-        const dx=lambda-lo[0],dy=yy-me[0];
-        const sx=(me[2]*dx-lo[2]*dy)/det*nativeW,sy=(-me[1]*dx+lo[1]*dy)/det*nativeH;
-        const rgba=sourceAt(sx,sy);if(!rgba)continue;
-        const k=(py*b.w+px)*4;dst[k]=rgba[0];dst[k+1]=rgba[1];dst[k+2]=rgba[2];dst[k+3]=rgba[3];
-       }
-      }
-      ctx.putImageData(data,0,0);
-     }
-     // Release decoded source pixels once the reprojection is complete.
-     this._source.forEach(v=>{v.data=null;v.img=null;});
-    },
-    _position(){
-     if(!this._map)return;
-     const p0=this._map.latLngToLayerPoint([north,west]),p1=this._map.latLngToLayerPoint([south,east]);
-     this._container.style.transform='matrix('+[(p1.x-p0.x)/outW,0,0,(p1.y-p0.y)/outH,p0.x,p0.y].join(',')+')';
-    },
-    _animate(ev){
-     if(!this._map)return;const p0=this._map._latLngToNewLayerPoint([north,west],ev.zoom,ev.center),p1=this._map._latLngToNewLayerPoint([south,east],ev.zoom,ev.center);
-     this._container.style.transform='matrix('+[(p1.x-p0.x)/outW,0,0,(p1.y-p0.y)/outH,p0.x,p0.y].join(',')+')';
-    },
-    onRemove(m){m.off('zoomanim',this._animate,this);m.off('viewreset moveend zoomend',this._position,this);L.DomUtil.remove(this._container);this._map=null;},
-    bringToFront(){if(this._container?.parentNode)this._container.parentNode.appendChild(this._container);return this;}
-   });
-   const layer=new Layer();layer._kapNativeZoom=null;
-   registerChart(id,c.name,layer,L.latLngBounds([south,west],[north,east]));
-   if(focus){map.fitBounds([ [south,west],[north,east] ]);screen('mapScreen');renderLayerPanel();}
-   return;
-  }
   const KapOverlay=L.Layer.extend({
    onAdd(m){
     this._map=m;
