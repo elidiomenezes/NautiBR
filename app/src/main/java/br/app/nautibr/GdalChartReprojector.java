@@ -30,10 +30,12 @@ final class GdalChartReprojector {
   File source=File.createTempFile("kap-source-", ".tif",directory);
   File output=new File(directory,source.getName()+".warped.tif");
   Dataset input=null,warped=null;
+  JSONArray originalCorners=meta.getJSONArray("corners");
   List<File> produced=new ArrayList<>();
   try {
    Driver driver=gdal.GetDriverByName("GTiff");
    if(driver==null)throw new IOException("GDAL GTiff driver missing");
+   if(!source.delete())throw new IOException("Cannot prepare temporary GeoTIFF");
    input=driver.Create(source.getAbsolutePath(),w,h,3,gdalconstConstants.GDT_Byte);
    if(input==null)throw new IOException("Cannot create temporary GeoTIFF");
    // Original normalized coefficients are in radians and pixel fractions.
@@ -106,6 +108,9 @@ final class GdalChartReprojector {
     double lat=Math.toDegrees(2*Math.atan(Math.exp(my/R))-Math.PI/2);
     corners.put(new JSONArray().put(lat).put(Math.toDegrees(mx/R)));
    }
+   double[] bounds1=bounds(originalCorners),bounds2=bounds(corners);
+   for(int i=0;i<4;i++)if(Math.abs(bounds1[i]-bounds2[i])>0.5)
+    throw new IOException("GDAL extent mismatch: KAP="+originalCorners+" GDAL="+corners);
    // Only switch metadata after all output tiles have been written.
    meta.put("tiles",result);meta.put("corners",corners);
    meta.put("originalWidth",outW);meta.put("originalHeight",outH);
@@ -117,6 +122,16 @@ final class GdalChartReprojector {
    for(File f:produced)f.delete();
    throw e;
   }finally{close(warped);close(input);source.delete();output.delete();}
+ }
+ private static double[] bounds(JSONArray corners)throws Exception{
+  double[] b={90,-90,180,-180};
+  for(int i=0;i<corners.length();i++){
+   JSONArray p=corners.getJSONArray(i);
+   double lat=p.getDouble(0),lon=p.getDouble(1);
+   b[0]=Math.min(b[0],lat);b[1]=Math.max(b[1],lat);
+   b[2]=Math.min(b[2],lon);b[3]=Math.max(b[3],lon);
+  }
+  return b;
  }
  private static double[] coefficients(JSONArray a)throws Exception{
   return new double[]{a.getDouble(0),a.getDouble(1),a.getDouble(2)};
