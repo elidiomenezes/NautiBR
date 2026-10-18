@@ -219,8 +219,8 @@ function openKap(c,focus=true){
     this._map=m;
     this._container=L.DomUtil.create('div','nautibr-kap-overlay',m.getPanes().overlayPane);
     this._container.style.cssText='position:absolute;left:0;top:0;pointer-events:none;transform-origin:0 0;will-change:transform;';
-    this._container.style.width=nativeW+'px';
-    this._container.style.height=nativeH+'px';
+    this._container.style.width=(curved?0:nativeW)+'px';
+    this._container.style.height=(curved?0:nativeH)+'px';
     this._images=tiles.map(t=>{
      const img=L.DomUtil.create('img','',this._container);
      img.src='https://nautibr.local/chart?id='+encodeURIComponent(t.id);
@@ -232,11 +232,12 @@ function openKap(c,focus=true){
     });
     this._preview=null;
     const maxDim=1024,ratio=Math.min(1,maxDim/Math.max(nativeW,nativeH));
-    const preview=document.createElement('canvas');
-    preview.width=Math.max(1,Math.ceil(nativeW*ratio));
+    const preview=curved?null:document.createElement('canvas');
+    if(preview){preview.width=Math.max(1,Math.ceil(nativeW*ratio));
     preview.height=Math.max(1,Math.ceil(nativeH*ratio));
     preview.style.cssText='position:absolute;left:0;top:0;width:'+nativeW+'px;height:'+nativeH+'px;display:none;pointer-events:none;';
-    const ctx=preview.getContext('2d');
+    }
+    const ctx=preview?preview.getContext('2d'):null;
     let remaining=this._images.length,ready=0;
     for(let i=0;i<this._images.length;i++){
      const img=this._images[i],t=tiles[i];
@@ -283,7 +284,8 @@ function openKap(c,focus=true){
     el.style.transform='matrix('+[a,b,c,d,p0.x,p0.y].join(',')+')';
    },
    _beginZoom(){
-    if(curved)return;\n    if(!this._preview)return;
+    if(curved)return;
+    if(!this._preview)return;
     this._preview.style.display="block";
     for(const img of this._images)img.style.visibility="hidden";
    },
@@ -295,6 +297,7 @@ function openKap(c,focus=true){
    _animateZoom(e){
     if(!this._map)return;
     const m=this._map;
+    if(curved){this._setCurved(e);return;}
     this._setAffine(
       m._latLngToNewLayerPoint(corners[0],e.zoom,e.center),
       m._latLngToNewLayerPoint(corners[1],e.zoom,e.center),
@@ -303,6 +306,7 @@ function openKap(c,focus=true){
    _position(){
     if(!this._map)return;
     const m=this._map;
+    if(curved){this._setCurved(null);return;}
     this._setAffine(m.latLngToLayerPoint(corners[0]),
       m.latLngToLayerPoint(corners[1]),m.latLngToLayerPoint(corners[2]),false);
    },
