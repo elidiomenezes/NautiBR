@@ -197,6 +197,7 @@ public class MainActivity extends Activity {
    }catch(Exception ignored){}
    return a.toString();
   }
+  @JavascriptInterface public String chartImportDiagnostics(){try{File f=new File(getFilesDir(),"chart-import.log");if(!f.exists())return "Nenhum log de importação ainda.";byte[] b=java.nio.file.Files.readAllBytes(f.toPath());return new String(b,"UTF-8");}catch(Exception e){return e.toString();}}
   @JavascriptInterface public String chartImportProgress(){
    android.content.SharedPreferences p=getSharedPreferences("chart_import",MODE_PRIVATE);
    try{return new JSONObject().put("running",p.getBoolean("running",false)).put("file",p.getString("file","")).put("percent",p.getInt("percent",0)).put("revision",p.getInt("revision",0)).put("done",p.getInt("done",0)).put("total",p.getInt("total",0)).put("message",p.getString("message","")).toString();}catch(Exception e){return "{}";}
