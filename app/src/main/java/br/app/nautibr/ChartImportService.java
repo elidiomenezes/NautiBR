@@ -17,6 +17,10 @@ public class ChartImportService extends Service {
  private volatile String current="";
  private volatile int percent=0;
  private volatile boolean running=false;
+ private final java.util.concurrent.atomic.AtomicInteger completed=new java.util.concurrent.atomic.AtomicInteger();
+ private final java.util.concurrent.atomic.AtomicInteger imported=new java.util.concurrent.atomic.AtomicInteger();
+ private final java.util.concurrent.atomic.AtomicInteger revision=new java.util.concurrent.atomic.AtomicInteger();
+ private final java.util.concurrent.ConcurrentHashMap<String,Integer> progressByFile=new java.util.concurrent.ConcurrentHashMap<>();
  @Override public void onCreate(){super.onCreate();charts=new File(getFilesDir(),"charts");charts.mkdirs();
   NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
   nm.createNotificationChannel(new NotificationChannel("chart_import","Importação de cartas",NotificationManager.IMPORTANCE_LOW));
@@ -27,24 +31,29 @@ public class ChartImportService extends Service {
    .setContentTitle("NautiBR · Importação de cartas").setContentText(message)
    .setProgress(100,Math.max(0,Math.min(100,pct)),false).setOngoing(true).build();
  }
- void progress(String file,int pct){
-  current=file;percent=Math.max(0,Math.min(100,pct));
-  String label=(done+1)+"/"+total+" · "+file;
+ synchronized void progress(String file,int pct){
+  progressByFile.put(file,Math.max(0,Math.min(100,pct)));
+  int sum=0;for(int p:progressByFile.values())sum+=p;
+  int overall=total==0?0:Math.min(99,sum/total);
+  String label=completed.get()+"/"+total+" concluídos · "+file;
   getSharedPreferences(PREF,MODE_PRIVATE).edit().putBoolean("running",true).putString("file",file)
-   .putInt("percent",percent).putInt("done",done).putInt("total",total).putString("message",label).apply();
-  ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(6102,notification(label,percent));
+   .putInt("percent",overall).putInt("done",completed.get()).putInt("total",total)
+   .putInt("revision",revision.get()).putString("message",label).apply();
+  ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(6102,notification(label,overall));
  }
  @Override public int onStartCommand(Intent intent,int flags,int startId){
   if(intent==null||!ACTION.equals(intent.getAction()))return START_NOT_STICKY;
   if(running)return START_NOT_STICKY;
   ArrayList<Uri> uris=intent.getParcelableArrayListExtra("uris");
   if(uris==null||uris.isEmpty())return START_NOT_STICKY;
-  running=true;total=uris.size();done=0;
+  running=true;total=uris.size();completed.set(0);imported.set(0);revision.set(0);progressByFile.clear();
   startForeground(6102,notification("Iniciando",0));
   final int request=intent.getIntExtra("request",42);
   new Thread(()->{
-   int count=0;ArrayList<String> errors=new ArrayList<>();
-   for(Uri uri:uris){
+   java.util.concurrent.ExecutorService pool=java.util.concurrent.Executors.newFixedThreadPool(Math.min(3,total));
+   java.util.List<java.util.concurrent.Future<?>> tasks=new java.util.ArrayList<>();
+   java.util.List<String> errors=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+   for(Uri uri:uris)tasks.add(pool.submit(()->{
     String name="carta";
     try{
      try(android.database.Cursor c=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)){
@@ -52,19 +61,27 @@ public class ChartImportService extends Service {
      }catch(Exception ignored){}
      progress(name,0);
      String lower=name.toLowerCase(Locale.ROOT);
-     if(lower.endsWith(".zip"))count+=importChartPackage(uri,name,request);
+     int count=0;
+     if(lower.endsWith(".zip"))count=importChartPackage(uri,name,request);
      else if(lower.endsWith(".tif")||lower.endsWith(".tiff"))errors.add(name+": GeoTIFF não suportado");
      else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}
      else if(isBsb(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveBsb(in,name);count++;}}
      else if(request==43&&isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
      else if(request==42&&isImage(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveImage(in,name);count++;}}
      else errors.add(name+": formato não suportado");
+     imported.addAndGet(count);
     }catch(Exception e){errors.add(name+": "+e.getMessage());}
-    done++;
-   }
-   String result=count+" imagem(ns) importada(s). "+String.join("; ",errors);
-   getSharedPreferences(PREF,MODE_PRIVATE).edit().putBoolean("running",false).putInt("done",done)
-    .putInt("total",total).putInt("percent",100).putString("message",result).apply();
+    finally{
+     revision.incrementAndGet();
+     completed.incrementAndGet();
+     progress(name,100);
+    }
+   }));
+   for(java.util.concurrent.Future<?> task:tasks)try{task.get();}catch(Exception e){errors.add(e.toString());}
+   pool.shutdown();
+   String result=imported.get()+" arquivo(s) importado(s). "+String.join("; ",errors);
+   getSharedPreferences(PREF,MODE_PRIVATE).edit().putBoolean("running",false).putInt("done",completed.get())
+    .putInt("total",total).putInt("percent",100).putInt("revision",revision.get()).putString("message",result).apply();
    NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
    nm.notify(6102,new Notification.Builder(this,"chart_import").setSmallIcon(android.R.drawable.stat_sys_download_done)
     .setContentTitle("NautiBR · Importação concluída").setContentText(result).setAutoCancel(true).build());
