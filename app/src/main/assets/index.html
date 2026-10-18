@@ -39,7 +39,7 @@ const chartLayers=new Map();let chartInit=false;let autoChartSelection=true;
 function status(s){$('status').textContent=s}
 function screen(id){for(const e of document.querySelectorAll('.screen'))e.classList.toggle('active',e.id===id);if(id==='mapScreen'&&map)setTimeout(()=>map.invalidateSize(),50)}
 function makeRow(container,name,fn){const row=document.createElement('div'),label=document.createElement('span'),btn=document.createElement('button');row.className='file';label.textContent=name;btn.textContent='Mostrar no mapa';btn.onclick=fn;row.append(label,btn);$(container).append(row)}
-let lastChartImportMessage='';
+let lastChartImportMessage='',lastChartImportRevision=-1;
 function pollChartImport(){
  try{
   const p=JSON.parse(Native.chartImportProgress()),panel=$('chartImportPanel');
@@ -47,7 +47,8 @@ function pollChartImport(){
   panel.style.display=p.running||p.message?'block':'none';
   $('chartImportFile').textContent=p.file||'';
   $('chartImportBar').value=p.percent||0;
-  $('chartImportStatus').textContent=p.running?'Carta '+(p.done+1)+' de '+p.total+' · '+p.percent+'%':p.message;
+  $('chartImportStatus').textContent=p.running?p.done+' de '+p.total+' concluídos · '+p.percent+'%':p.message;
+  if(p.revision!==undefined&&p.revision!==lastChartImportRevision){lastChartImportRevision=p.revision;refresh();}
   if(!p.running&&p.message&&p.message!==lastChartImportMessage){lastChartImportMessage=p.message;refresh();}
  }catch(e){}
 }
