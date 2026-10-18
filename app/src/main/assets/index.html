@@ -195,6 +195,18 @@ function openKap(c,focus=true){
   const bounds=L.latLngBounds(corners);kapBounds=bounds;
   const nativeW=c.originalWidth||c.previewWidth,nativeH=c.originalHeight||c.previewHeight;
   if(!(nativeW>0&&nativeH>0&&corners.length>=3))throw Error('Dimensões ou referências da carta inválidas');
+  const curved=!!(c.ellipsoidalMercator&&Array.isArray(c.mercatorLongitude)&&Array.isArray(c.mercatorNorthing));
+  const kapPoint=(x,y)=>{
+   const v=x/nativeW,w=y/nativeH,lo=c.mercatorLongitude,me=c.mercatorNorthing;
+   const longitude=(lo[0]+lo[1]*v+lo[2]*w)*180/Math.PI;
+   const yy=me[0]+me[1]*v+me[2]*w;
+   let phi=2*Math.atan(Math.exp(yy))-Math.PI/2;
+   if(curved)for(let j=0;j<12;j++){
+    const e=Math.sqrt(0.0066943799901413165),z=e*Math.sin(phi);
+    phi=2*Math.atan(Math.exp(yy)*Math.pow((1+z)/(1-z),e/2))-Math.PI/2;
+   }
+   return L.latLng(phi*180/Math.PI,longitude);
+  };
   const tiles=Array.isArray(c.tiles)&&c.tiles.length?c.tiles:[{id:c.id,x:0,y:0,w:nativeW,h:nativeH}];
   // Display each original-resolution PNG strip as a native image.
   // Leaflet controls the viewport; one affine transform per strip preserves
@@ -251,6 +263,17 @@ function openKap(c,focus=true){
     this._images=[];
     this._map=null;
    },
+   _setCurved(zoomEvent){
+    const m=this._map;if(!m)return;
+    const point=(latlng)=>zoomEvent?m._latLngToNewLayerPoint(latlng,zoomEvent.zoom,zoomEvent.center):m.latLngToLayerPoint(latlng);
+    for(let i=0;i<tiles.length;i++){
+     const t=tiles[i],img=this._images[i];
+     const p0=point(kapPoint(t.x,t.y)),p1=point(kapPoint(t.x+t.w,t.y)),p2=point(kapPoint(t.x,t.y+t.h));
+     const a=(p1.x-p0.x)/t.w,b=(p1.y-p0.y)/t.w,cc=(p2.x-p0.x)/t.h,d=(p2.y-p0.y)/t.h;
+     img.style.left='0';img.style.top='0';img.style.transformOrigin='0 0';
+     img.style.transform='matrix('+[a,b,cc,d,p0.x,p0.y].join(',')+')';
+    }
+   },
    _setAffine(p0,p1,p2,animate){
     if(!this._container)return;
     const a=(p1.x-p0.x)/nativeW,b=(p1.y-p0.y)/nativeW;
@@ -260,7 +283,7 @@ function openKap(c,focus=true){
     el.style.transform='matrix('+[a,b,c,d,p0.x,p0.y].join(',')+')';
    },
    _beginZoom(){
-    if(!this._preview)return;
+    if(curved)return;\n    if(!this._preview)return;
     this._preview.style.display="block";
     for(const img of this._images)img.style.visibility="hidden";
    },
