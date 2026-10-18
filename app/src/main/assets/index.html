@@ -228,14 +228,25 @@ function openKap(c,focus=true){
     this._container.style.cssText='position:absolute;left:0;top:0;pointer-events:none;transform-origin:0 0;will-change:transform;';
     this._container.style.width=(curved?0:nativeW)+'px';
     this._container.style.height=(curved?0:nativeH)+'px';
+    // Ellipsoidal Mercator -> EPSG:3857 is nonlinear in latitude.
+    // Tessellate each native PNG tile into 64-pixel horizontal bands.
+    // Each band uses its own local affine approximation, with no resampling
+    // or downscaled preview; all bands share the same decoded image resource.
     this._images=tiles.map(t=>{
-     const img=L.DomUtil.create('img','',this._container);
-     img.src='https://nautibr.local/chart?id='+encodeURIComponent(t.id);
-     img.alt='';img.draggable=false;
-     img.style.cssText='position:absolute;max-width:none;max-height:none;pointer-events:none;';
-     img.style.left=t.x+'px';img.style.top=t.y+'px';
-     img.style.width=t.w+'px';img.style.height=t.h+'px';
-     return img;
+     const bands=curved?Math.ceil(t.h/64):1;
+     const pieces=[];
+     for(let k=0;k<bands;k++){
+      const top=curved?k*64:0, h=Math.min(curved?64:t.h,t.h-top);
+      const img=L.DomUtil.create('img','',this._container);
+      img.src='https://nautibr.local/chart?id='+encodeURIComponent(t.id);
+      img.alt='';img.draggable=false;
+      img.style.cssText='position:absolute;max-width:none;max-height:none;pointer-events:none;';
+      img.style.left=t.x+'px';img.style.top=t.y+'px';
+      img.style.width=t.w+'px';img.style.height=t.h+'px';
+      if(curved)img.style.clipPath='inset('+top+'px 0px '+(t.h-top-h)+'px 0px)';
+      pieces.push({img,top,h});
+     }
+     return pieces;
     });
     this._preview=null;
     const maxDim=1024,ratio=Math.min(1,maxDim/Math.max(nativeW,nativeH));
@@ -247,7 +258,7 @@ function openKap(c,focus=true){
     const ctx=preview?preview.getContext('2d'):null;
     let remaining=this._images.length,ready=0;
     for(let i=0;i<this._images.length;i++){
-     const img=this._images[i],t=tiles[i];
+     const img=this._images[i][0].img,t=tiles[i];
      const done=()=>{
       if(img.naturalWidth>0&&ctx){ctx.drawImage(img,t.x*ratio,t.y*ratio,t.w*ratio,t.h*ratio);ready++}
       remaining--;
@@ -275,11 +286,17 @@ function openKap(c,focus=true){
     const m=this._map;if(!m)return;
     const point=(latlng)=>zoomEvent?m._latLngToNewLayerPoint(latlng,zoomEvent.zoom,zoomEvent.center):m.latLngToLayerPoint(latlng);
     for(let i=0;i<tiles.length;i++){
-     const t=tiles[i],img=this._images[i];
-     const p0=point(kapPoint(t.x,t.y)),p1=point(kapPoint(t.x+t.w,t.y)),p2=point(kapPoint(t.x,t.y+t.h));
-     const a=(p1.x-p0.x)/t.w,b=(p1.y-p0.y)/t.w,cc=(p2.x-p0.x)/t.h,d=(p2.y-p0.y)/t.h;
-     img.style.left='0';img.style.top='0';img.style.transformOrigin='0 0';
-     img.style.transform='matrix('+[a,b,cc,d,p0.x,p0.y].join(',')+')';
+     const t=tiles[i];
+     for(const piece of this._images[i]){
+      const {img,top,h}=piece;
+      const p0=point(kapPoint(t.x,t.y+top));
+      const p1=point(kapPoint(t.x+t.w,t.y+top));
+      const p2=point(kapPoint(t.x,t.y+top+h));
+      const a=(p1.x-p0.x)/t.w,b=(p1.y-p0.y)/t.w;
+      const cc=(p2.x-p0.x)/h,d=(p2.y-p0.y)/h;
+      img.style.left='0';img.style.top='0';img.style.transformOrigin='0 0';
+      img.style.transform='matrix('+[a,b,cc,d,p0.x-cc*top,p0.y-d*top].join(',')+')';
+     }
     }
    },
    _setAffine(p0,p1,p2,animate){
@@ -294,12 +311,12 @@ function openKap(c,focus=true){
     if(curved)return;
     if(!this._preview)return;
     this._preview.style.display="block";
-    for(const img of this._images)img.style.visibility="hidden";
+    for(const pieces of this._images)for(const piece of pieces)piece.img.style.visibility="hidden";
    },
    _endZoom(){
     this._position();
     if(this._preview)this._preview.style.display="none";
-    for(const img of this._images)img.style.visibility="";
+    for(const pieces of this._images)for(const piece of pieces)piece.img.style.visibility="";
    },
    _animateZoom(e){
     if(!this._map)return;
