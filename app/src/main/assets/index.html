@@ -69,19 +69,25 @@ function renderLayerPanel(){
  }
  $('layerCount').textContent=shown+' de '+chartLayers.size+' camadas';
 }
+function chartCoverageArea(bounds){
+ if(!bounds||!bounds.isValid())return Number.POSITIVE_INFINITY;
+ const sw=bounds.getSouthWest(),ne=bounds.getNorthEast();
+ const dlat=Math.abs(ne.lat-sw.lat),dlon=Math.abs(ne.lng-sw.lng);
+ return dlat*dlon*Math.max(.001,Math.cos((ne.lat+sw.lat)*Math.PI/360));
+}
 function updateChartVisibility(){
  if(!map)return;
- const zoom=map.getZoom(),view=map.getBounds();
- const active=[...chartLayers.values()].filter(e=>e.enabled&&e.nativeZoom!==null&&e.bounds.isValid()&&e.bounds.intersects(view));
- const sorted=active.sort((a,b)=>a.nativeZoom-b.nativeZoom);
+ const ordered=[...chartLayers.values()].filter(e=>e.enabled&&e.bounds.isValid())
+  .sort((a,b)=>chartCoverageArea(b.bounds)-chartCoverageArea(a.bounds));
  for(const e of chartLayers.values()){
-  if(!e.enabled){if(map.hasLayer(e.layer))map.removeLayer(e.layer);continue}
-  if(!map.hasLayer(e.layer))e.layer.addTo(map);
+  if(!e.enabled&&map.hasLayer(e.layer))map.removeLayer(e.layer);
  }
- // Larger-scale (higher native zoom) charts are painted last so their
- // fine details cannot be covered by a coarse overview chart.
- for(const e of sorted)if(map.hasLayer(e.layer))e.layer.bringToFront();
+ for(const e of ordered){
+  if(!map.hasLayer(e.layer))e.layer.addTo(map);
+  if(typeof e.layer.bringToFront==='function')e.layer.bringToFront();
+ }
 }
+
 function registerChart(id,name,layer,bounds){
  if(chartLayers.has(id))return chartLayers.get(id);
  const e={name,layer,bounds,enabled:true,nativeZoom:layer._kapNativeZoom??null};
