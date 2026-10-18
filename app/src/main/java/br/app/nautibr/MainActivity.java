@@ -552,7 +552,6 @@ public class MainActivity extends Activity {
      result.put(new JSONObject().put("id",file).put("x",left).put("y",topRow).put("w",w).put("h",h));
      output[col].recycle();output[col]=null;
     }
-    progress(name,Math.min(99,50+(int)(49.0*(topRow+h)/height)));
    }
   }finally{
    for(Bitmap b:source)if(b!=null&&!b.isRecycled())b.recycle();
