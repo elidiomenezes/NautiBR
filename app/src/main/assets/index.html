@@ -56,7 +56,7 @@ setInterval(pollChartImport,700);
 function onStatus(s){status(s);refresh();if(s.includes("imagem(ns) importada(s)")){const count=parseInt(s,10);if(count>0){screen('mapScreen');setTimeout(()=>{fitKap();updateChartVisibility()},100)}}}
 function onGeoImported(s){refresh()}
 function toggleLayerPanel(){const p=$('layerPanel');p.style.display=p.style.display==='none'?'block':'none';renderLayerPanel()}
-function isLargeKap(c){const a=c.corners||[];if(a.length<2)return false;const lat=a.map(p=>Number(p[0]));return Math.max(...lat)-Math.min(...lat)>5;}
+function isLargeKap(c){return Number(c.rmsPixels)>1.5;}
 const largeKapAlerts=new Set();
 function renderLayerPanel(){
  const p=$('layerPanel');p.replaceChildren();let shown=0;
@@ -65,14 +65,14 @@ function renderLayerPanel(){
   const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:6px;margin:5px 0';
   const check=document.createElement('input');check.type='checkbox';check.checked=e.enabled;
   check.onchange=()=>{e.enabled=check.checked;updateChartVisibility();renderLayerPanel()};
-  const label=document.createElement('span');label.textContent=e.name+(e.largeKap?' · PROJEÇÃO NÃO VALIDADA':'');label.style.cssText='flex:1;overflow-wrap:anywhere;font-size:12px'+(e.largeKap?';color:#ff5555;font-weight:bold':'');
+  const label=document.createElement('span');label.textContent=e.name+(e.largeKap?' · RMS ELEVADO':'');label.style.cssText='flex:1;overflow-wrap:anywhere;font-size:12px'+(e.largeKap?';color:#ff5555;font-weight:bold':'');
   const focus=document.createElement('button');focus.textContent='Ir';focus.style.padding='5px';
   focus.onclick=()=>{e.enabled=true;map.fitBounds(e.bounds);updateChartVisibility();screen('mapScreen');renderLayerPanel()};
   row.append(check,label,focus);p.append(row);
  }
  $('layerCount').textContent=shown+' de '+chartLayers.size+' camadas';
  const warnings=[...chartLayers.values()].filter(e=>e.largeKap).length;
- const toggle=$('layerToggleButton');if(toggle){toggle.style.background=warnings?'#b4232d':'';toggle.style.color=warnings?'#fff':'';toggle.title=warnings?warnings+' carta(s) grande(s) com projeção não validada':'';}
+ const toggle=$('layerToggleButton');if(toggle){toggle.style.background=warnings?'#b4232d':'';toggle.style.color=warnings?'#fff':'';toggle.title=warnings?warnings+' carta(s) com RMS de georreferenciamento elevado':'';}
 }
 function chartCoverageArea(bounds){
  if(!bounds||!bounds.isValid())return Number.POSITIVE_INFINITY;
@@ -103,8 +103,8 @@ function refresh(){
  try{
   for(const c of JSON.parse(Native.kapFiles())){
    const large=isLargeKap(c);
-   makeRow('kapfiles',c.name+(large?' ⚠ CARTA GRANDE: PROJEÇÃO NÃO VALIDADA (desativada)':'')+(c.reducedGeoreferenceAccuracy?' ⚠ precisão de georreferenciamento reduzida':''),()=>openKap(c,true));
-   if(large&&!largeKapAlerts.has(c.id)){largeKapAlerts.add(c.id);alert('Carta importada: '+c.name+'\\n\\nEsta carta cobre mais de 5° de latitude. Sua projeção pode causar deslocamentos significativos no mapa.\\n\\nA camada ficará DESATIVADA por padrão. Ative-a manualmente em Camadas, somente para inspeção.');}
+   makeRow('kapfiles',c.name+(large?' ⚠ GEORREFERENCIAMENTO: RMS ELEVADO (desativada)':'')+(c.reducedGeoreferenceAccuracy?' ⚠ precisão de georreferenciamento reduzida':''),()=>openKap(c,true));
+   if(large&&!largeKapAlerts.has(c.id)){largeKapAlerts.add(c.id);alert('Carta importada: '+c.name+'\\n\\nO erro RMS dos pontos de referência excede 1,5 pixel. O georreferenciamento pode apresentar deslocamentos.\\n\\nA camada ficará DESATIVADA por padrão. Ative-a manualmente em Camadas, somente para inspeção.');}
    if(map&&!chartLayers.has('kap:'+c.id))openKap(c,false);
   }
  }catch(e){status('Cartas KAP: '+e.message)}
