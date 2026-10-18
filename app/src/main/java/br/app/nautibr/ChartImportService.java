@@ -13,6 +13,8 @@ public class ChartImportService extends Service {
  static final String ACTION="br.app.nautibr.IMPORT";
  static final String PREF="chart_import";
  private File charts;
+ private synchronized void diag(String message){try{File f=new File(getFilesDir(),"chart-import.log");try(FileWriter w=new FileWriter(f,true)){w.write(new java.text.SimpleDateFormat("HH:mm:ss.SSS",Locale.US).format(new Date())+" "+message+"\n");}}catch(Exception ignored){}}
+
  private volatile int done=0,total=0;
  private volatile String current="";
  private volatile int percent=0;
@@ -46,6 +48,8 @@ public class ChartImportService extends Service {
   if(running)return START_NOT_STICKY;
   ArrayList<Uri> uris=intent.getParcelableArrayListExtra("uris");
   if(uris==null||uris.isEmpty())return START_NOT_STICKY;
+  try{new FileOutputStream(new File(getFilesDir(),"chart-import.log")).close();}catch(Exception ignored){}
+  diag("START files="+uris.size()+" build="+getPackageName());
   running=true;total=uris.size();completed.set(0);imported.set(0);revision.set(0);progressByFile.clear();
   startForeground(6102,notification("Iniciando",0));
   final int request=intent.getIntExtra("request",42);
@@ -59,7 +63,7 @@ public class ChartImportService extends Service {
      try(android.database.Cursor c=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)){
       if(c!=null&&c.moveToFirst())name=c.getString(0);
      }catch(Exception ignored){}
-     progress(name,0);
+     diag("FILE start "+name);progress(name,0);
      String lower=name.toLowerCase(Locale.ROOT);
      int count=0;
      if(lower.endsWith(".zip"))count=importChartPackage(uri,name,request);
@@ -69,8 +73,8 @@ public class ChartImportService extends Service {
      else if(request==43&&isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
      else if(request==42&&isImage(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveImage(in,name);count++;}}
      else errors.add(name+": formato não suportado");
-     imported.addAndGet(count);
-    }catch(Exception e){errors.add(name+": "+e.getMessage());}
+     imported.addAndGet(count);diag("FILE done "+name+" imported="+count);
+    }catch(Exception e){errors.add(name+": "+e.getMessage());diag("ERROR "+name+" "+android.util.Log.getStackTraceString(e));}
     finally{
      revision.incrementAndGet();
      completed.incrementAndGet();
@@ -79,6 +83,7 @@ public class ChartImportService extends Service {
    }));
    for(java.util.concurrent.Future<?> task:tasks)try{task.get();}catch(Exception e){errors.add(e.toString());}
    pool.shutdown();
+   diag("END imported="+imported.get()+" errors="+errors.size());
    String result=imported.get()+" arquivo(s) importado(s). "+String.join("; ",errors);
    getSharedPreferences(PREF,MODE_PRIVATE).edit().putBoolean("running",false).putInt("done",completed.get())
     .putInt("total",total).putInt("percent",100).putInt("revision",revision.get()).putString("message",result).apply();
@@ -107,7 +112,7 @@ public class ChartImportService extends Service {
    for(byte b:digest.digest())hash.append(String.format(Locale.US,"%02x",b&255));
    String packageId=hash.toString();
    File manifest=new File(charts,packageId+".package.json");
-   if(manifest.exists())return 0;
+   if(manifest.exists()){diag("SKIP duplicate ZIP sha256="+packageId);return 0;}
    LinkedHashMap<String,File> kaps=new LinkedHashMap<>();
    LinkedHashMap<String,File> bsbs=new LinkedHashMap<>();
    LinkedHashMap<String,File> geos=new LinkedHashMap<>();
@@ -136,6 +141,7 @@ public class ChartImportService extends Service {
      else geos.put(key,file);
     }
    }
+   diag("ZIP entries="+entries+" kaps="+kaps.size()+" bsbs="+bsbs.size());
    // Catalogs are parsed first, independent of entry order in the ZIP.
    JSONArray catalogs=new JSONArray(),chartsInPackage=new JSONArray();
    LinkedHashMap<String,JSONArray> referencedBy=new LinkedHashMap<>();
