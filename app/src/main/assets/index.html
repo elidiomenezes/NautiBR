@@ -98,7 +98,7 @@ function refresh(){
  for(const id of ['kapfiles','bsbfiles','geofiles'])$(id).replaceChildren();
  try{
   for(const c of JSON.parse(Native.kapFiles())){
-   makeRow('kapfiles',c.name,()=>openKap(c,true));
+   makeRow('kapfiles',c.name+(c.reducedGeoreferenceAccuracy?' ⚠ precisão de georreferenciamento reduzida':''),()=>openKap(c,true));
    if(map&&!chartLayers.has('kap:'+c.id))openKap(c,false);
   }
  }catch(e){status('Cartas KAP: '+e.message)}
