@@ -31,6 +31,13 @@ jobs:
           curl -fL --retry 3 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js' -o app/src/main/assets/vendor/leaflet.js
           curl -fL --retry 3 'https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js' -o app/src/main/assets/vendor/geotiff.js
           test "$(wc -c < app/src/main/assets/vendor/geotiff.js)" -gt 100000
+      - name: Download GDAL Android native bindings
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs
+          curl -fL --retry 3 'https://github.com/kikitte/GDAL4Android/releases/download/v3.7.0-iconv/gdal-3.7.0.aar' -o app/libs/gdal-3.7.0.aar
+          test "$(wc -c < app/libs/gdal-3.7.0.aar)" -gt 10000000
+          unzip -t app/libs/gdal-3.7.0.aar >/dev/null
       - run: gradle --no-daemon assembleDebug
       - uses: actions/upload-artifact@v4
         with:
