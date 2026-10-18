@@ -1,6 +1,7 @@
 <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>NautiBR</title><link rel="stylesheet" href="/vendor/leaflet.css">
-<script src="/vendor/leaflet.js"></script>
+<script src="/vendor/leaflet.js">function showImportDiagnostics(){document.getElementById('importDiagnostics').value=Native.chartImportDiagnostics();}
+</script>
 
 <style>*{box-sizing:border-box}body{margin:0;background:#0d1824;color:#e7f0f7;font:15px system-ui,sans-serif}
 header{padding:12px 16px;background:#162b3b;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;min-width:0}header strong{font-size:16px;white-space:normal;overflow-wrap:anywhere}header span{font-size:12px;text-align:right;flex-shrink:0}nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:10px;background:#132432}nav button{min-width:0;padding:10px 3px;font-size:12px;overflow-wrap:anywhere}
@@ -18,7 +19,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <p>Selecione arquivos .KAP, catálogos .BSB, GeoJSON ou ZIP contendo esses formatos.</p>
 <button onclick="Native.importCharts()">Importar KAP/BSB ou ZIP</button>
 <button onclick="Native.importGeo()">Importar GeoJSON ou ZIP</button>
-<div id="chartImportPanel" style="display:none;margin:12px 0;padding:12px;border:1px solid #426075;border-radius:10px"><div id="chartImportFile" style="overflow-wrap:anywhere"></div><progress id="chartImportBar" max="100" value="0" style="width:100%;height:14px;margin:8px 0"></progress><div id="chartImportStatus"></div></div><h4>Cartas KAP</h4><div id="kapfiles"></div><h4>Catálogos BSB</h4><div id="bsbfiles"></div><p class="warning">Arquivos .BSB são lidos como catálogos/cabeçalhos. A imagem raster é fornecida pelos arquivos .KAP associados.</p><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
+<div id="chartImportPanel" style="display:none;margin:12px 0;padding:12px;border:1px solid #426075;border-radius:10px"><div id="chartImportFile" style="overflow-wrap:anywhere"></div><progress id="chartImportBar" max="100" value="0" style="width:100%;height:14px;margin:8px 0"></progress><div id="chartImportStatus"></div></div><div style="margin:12px 0"><button onclick="showImportDiagnostics()">Ver logs da importação</button> <button onclick="Native.copyText(Native.chartImportDiagnostics())">Copiar logs</button><textarea id="importDiagnostics" readonly style="width:100%;box-sizing:border-box;height:220px;background:#09131c;color:#e4edf4;margin-top:8px;font:12px monospace" placeholder="Os logs aparecerão aqui após iniciar uma importação."></textarea></div><h4>Cartas KAP</h4><div id="kapfiles"></div><h4>Catálogos BSB</h4><div id="bsbfiles"></div><p class="warning">Arquivos .BSB são lidos como catálogos/cabeçalhos. A imagem raster é fornecida pelos arquivos .KAP associados.</p><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
 <p class="warning">Cartas KAP e GeoJSON importadas funcionam offline. O mapa-base OpenStreetMap exige internet.</p></section>
 <section class="screen" id="aisScreen">
 <h3>AIS — alvos em tempo real</h3>
