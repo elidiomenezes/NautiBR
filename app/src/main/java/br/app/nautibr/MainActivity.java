@@ -430,17 +430,34 @@ public class MainActivity extends Activity {
    if(Math.abs(r[2])>=85)throw new IOException("Latitude REF fora de Mercator");
    double[] v={1,r[0]/width,r[1]/height};
    double mx=Math.toRadians(r[3]);
-   double my=Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));
-   for(int i=0;i<3;i++){east[i]+=v[i]*mx;north[i]+=v[i]*my;for(int j=0;j<3;j++)normal[i][j]+=v[i]*v[j];}
+   for(int i=0;i<3;i++){east[i]+=v[i]*mx;for(int j=0;j<3;j++)normal[i][j]+=v[i]*v[j];}
   }
-  double[] lon=solve3(normal,east),merc=solve3(normal,north);
+  double[] lon=solve3(normal,east),merc=null;
+  boolean ellipsoidal=false;
+  double bestError=Double.POSITIVE_INFINITY;
+  for(int mode=0;mode<2;mode++){
+   double[] northCandidate=new double[3];
+   for(double[] r:refs){
+    double[] v={1,r[0]/width,r[1]/height};
+    double my=mercatorY(r[2],mode==1);
+    for(int i=0;i<3;i++)northCandidate[i]+=v[i]*my;
+   }
+   double[] candidate=solve3(normal,northCandidate);
+   double sum=0;
+   for(double[] r:refs){
+    double[] v={1,r[0]/width,r[1]/height};
+    double d=candidate[0]+candidate[1]*v[1]+candidate[2]*v[2]-mercatorY(r[2],mode==1);
+    sum+=d*d;
+   }
+   if(sum<bestError){bestError=sum;merc=candidate;ellipsoidal=mode==1;}
+  }
   double pixelError=0,maxPixelError=0;
   double determinant=lon[1]*merc[2]-lon[2]*merc[1];
   if(Math.abs(determinant)<1e-14)throw new IOException("Transformação REF degenerada");
   for(double[] r:refs){
    double[] v={1,r[0]/width,r[1]/height};
    double dx=lon[0]+lon[1]*v[1]+lon[2]*v[2]-Math.toRadians(r[3]);
-   double dy=merc[0]+merc[1]*v[1]+merc[2]*v[2]-Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));
+   double dy=merc[0]+merc[1]*v[1]+merc[2]*v[2]-mercatorY(r[2],ellipsoidal);
    double px=(merc[2]*dx-lon[2]*dy)/determinant*width;
    double py=(-merc[1]*dx+lon[1]*dy)/determinant*height;
    double err=Math.hypot(px,py);pixelError+=err*err;maxPixelError=Math.max(maxPixelError,err);
@@ -451,14 +468,27 @@ public class MainActivity extends Activity {
   for(int[] p:new int[][]{{0,0},{width,0},{0,height},{width,height}}){
    double x=(double)p[0]/width,y=(double)p[1]/height;
    double longitude=Math.toDegrees(lon[0]+lon[1]*x+lon[2]*y);
-   double latitude=Math.toDegrees(2*Math.atan(Math.exp(merc[0]+merc[1]*x+merc[2]*y))-Math.PI/2);
+   double latitude=inverseMercatorY(merc[0]+merc[1]*x+merc[2]*y,ellipsoidal);
    if(!Double.isFinite(latitude)||!Double.isFinite(longitude)||Math.abs(latitude)>85||Math.abs(longitude)>180)throw new IOException("Coordenadas inválidas");
    corners.put(new JSONArray().put(latitude).put(longitude));
   }
   JSONObject meta=new JSONObject();meta.put("id",id+".png");meta.put("name",name);meta.put("corners",corners);meta.put("tiles",tiles);
   meta.put("originalWidth",width);meta.put("originalHeight",height);meta.put("previewWidth",width);meta.put("previewHeight",height);
-  meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);meta.put("reducedGeoreferenceAccuracy",reducedGeoreferenceAccuracy);
+  meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);meta.put("ellipsoidalMercator",ellipsoidal);meta.put("mercatorLongitude",new JSONArray(lon));meta.put("mercatorNorthing",new JSONArray(merc));meta.put("reducedGeoreferenceAccuracy",reducedGeoreferenceAccuracy);
   try(OutputStream out=new FileOutputStream(new File(charts,id+".kap.json"))){out.write(meta.toString().getBytes("UTF-8"));}
+ }
+ static double mercatorY(double latitude,boolean ellipsoidal){
+  double phi=Math.toRadians(latitude),y=Math.log(Math.tan(Math.PI/4+phi/2));
+  if(ellipsoidal){double e=Math.sqrt(0.0066943799901413165),z=e*Math.sin(phi);y-=e/2*Math.log((1+z)/(1-z));}
+  return y;
+ }
+ static double inverseMercatorY(double y,boolean ellipsoidal){
+  double phi=2*Math.atan(Math.exp(y))-Math.PI/2;
+  if(ellipsoidal)for(int i=0;i<12;i++){
+   double e=Math.sqrt(0.0066943799901413165),z=e*Math.sin(phi);
+   phi=2*Math.atan(Math.exp(y)*Math.pow((1+z)/(1-z),e/2))-Math.PI/2;
+  }
+  return Math.toDegrees(phi);
  }
  double[] solve3(double[][] matrix,double[] rhs)throws IOException{
   double[][] a=new double[3][4];
