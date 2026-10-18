@@ -332,6 +332,12 @@ public class ChartImportService extends Service {
   JSONObject meta=new JSONObject();meta.put("id",id+".png");meta.put("name",name);meta.put("corners",corners);meta.put("tiles",tiles);
   meta.put("originalWidth",width);meta.put("originalHeight",height);meta.put("previewWidth",width);meta.put("previewHeight",height);
   meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);meta.put("ellipsoidalMercator",ellipsoidal);meta.put("mercatorLongitude",new JSONArray(lon));meta.put("mercatorNorthing",new JSONArray(merc));meta.put("reducedGeoreferenceAccuracy",reducedGeoreferenceAccuracy);
+  // GDAL reprojection is mandatory. Propagate any failure to the importer.
+  // Never save unwarped tiles as though the chart was imported successfully.
+  diag("GDAL warp starting "+name);
+  GdalChartReprojector.reproject(charts,meta);
+  diag("GDAL warp succeeded "+name+" tiles="+meta.getJSONArray("tiles").length());
+  for(int i=0;i<tiles.length();i++)new File(charts,tiles.getJSONObject(i).getString("id")).delete();
   try(OutputStream out=new FileOutputStream(new File(charts,id+".kap.json"))){out.write(meta.toString().getBytes("UTF-8"));}
  }
  static double mercatorY(double latitude,boolean ellipsoidal){
