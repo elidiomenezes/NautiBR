@@ -321,10 +321,93 @@ public class ChartImportService extends Service {
    if(!Double.isFinite(latitude)||!Double.isFinite(longitude)||Math.abs(latitude)>85||Math.abs(longitude)>180)throw new IOException("Coordenadas inválidas");
    corners.put(new JSONArray().put(latitude).put(longitude));
   }
+  // Reproject only north-up ellipsoidal charts whose latitude span exceeds 5 degrees.
+  // Small charts retain their original native PNG tiles and renderer.
+  double latSpan=Math.abs(corners.getJSONArray(0).getDouble(0)-corners.getJSONArray(2).getDouble(0));
+  boolean reprojected=false;
+  if(ellipsoidal&&latSpan>5&&Math.abs(lon[2])<Math.abs(lon[1])*1e-7&&Math.abs(merc[1])<Math.abs(merc[2])*1e-7){
+   JSONArray projected=reprojectMercatorTiles(tiles,id,width,height,merc,name);
+   if(projected.length()!=tiles.length())throw new IOException("Reprojeção incompleta");
+   tiles=projected;
+   double top=mercatorY(corners.getJSONArray(0).getDouble(0),false);
+   double bottom=mercatorY(corners.getJSONArray(2).getDouble(0),false);
+   merc=new double[]{top,0,bottom-top};
+   ellipsoidal=false;
+   reprojected=true;
+  }
   JSONObject meta=new JSONObject();meta.put("id",id+".png");meta.put("name",name);meta.put("corners",corners);meta.put("tiles",tiles);
   meta.put("originalWidth",width);meta.put("originalHeight",height);meta.put("previewWidth",width);meta.put("previewHeight",height);
-  meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);meta.put("ellipsoidalMercator",ellipsoidal);meta.put("mercatorLongitude",new JSONArray(lon));meta.put("mercatorNorthing",new JSONArray(merc));meta.put("reducedGeoreferenceAccuracy",reducedGeoreferenceAccuracy);
+  meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);meta.put("ellipsoidalMercator",ellipsoidal);meta.put("mercatorLongitude",new JSONArray(lon));meta.put("mercatorNorthing",new JSONArray(merc));meta.put("reducedGeoreferenceAccuracy",reducedGeoreferenceAccuracy);meta.put("reprojectedWebMercator",reprojected);
   try(OutputStream out=new FileOutputStream(new File(charts,id+".kap.json"))){out.write(meta.toString().getBytes("UTF-8"));}
+ }
+ JSONArray reprojectMercatorTiles(JSONArray oldTiles,String id,int width,int height,double[] merc,String name)throws Exception{
+  // North-up ellipsoidal Mercator -> spherical Web Mercator, full native dimensions.
+  // Process one 512-row strip at a time; never allocate the entire raster.
+  final int tileW=1024,tileH=512,cols=(width+tileW-1)/tileW;
+  final double top=mercatorY(inverseMercatorY(merc[0],true),false);
+  final double bottom=mercatorY(inverseMercatorY(merc[0]+merc[2],true),false);
+  JSONArray result=new JSONArray();
+  Bitmap[] source=new Bitmap[cols],output=new Bitmap[cols];
+  int currentStrip=-1;
+  int[] row0=new int[width],row1=new int[width],rowOut=new int[width];
+  try{
+   for(int topRow=0;topRow<height;topRow+=tileH){
+    int h=Math.min(tileH,height-topRow);
+    for(int col=0;col<cols;col++)output[col]=Bitmap.createBitmap(Math.min(tileW,width-col*tileW),h,Bitmap.Config.ARGB_8888);
+    for(int yy=0;yy<h;yy++){
+     int y=topRow+yy;
+     double spherical=top+(bottom-top)*(y+0.5)/height;
+     double latitude=Math.toDegrees(2*Math.atan(Math.exp(spherical))-Math.PI/2);
+     double ellip=mercatorY(latitude,true);
+     double src=(ellip-merc[0])/merc[2]*height-0.5;
+     int y0=Math.max(0,Math.min(height-1,(int)Math.floor(src)));
+     int y1=Math.min(height-1,y0+1);
+     double alpha=Math.max(0,Math.min(1,src-Math.floor(src)));
+     int strip0=y0/tileH;
+     if(strip0!=currentStrip){
+      for(int col=0;col<cols;col++){
+       if(source[col]!=null)source[col].recycle();
+       String file=id+"_"+col+"_"+strip0+".png";
+       source[col]=BitmapFactory.decodeFile(new File(charts,file).getAbsolutePath());
+       if(source[col]==null)throw new IOException("Bloco KAP não encontrado: "+file);
+      }
+      currentStrip=strip0;
+     }
+     for(int col=0;col<cols;col++){
+      int left=col*tileW,w=Math.min(tileW,width-left);
+      source[col].getPixels(row0,left,width,0,y0%tileH,w,1);
+      if(y1/tileH==strip0)source[col].getPixels(row1,left,width,0,y1%tileH,w,1);
+      else {
+       Bitmap next=BitmapFactory.decodeFile(new File(charts,id+"_"+col+"_"+(strip0+1)+".png").getAbsolutePath());
+       if(next==null)throw new IOException("Próximo bloco KAP ausente");
+       next.getPixels(row1,left,width,0,0,w,1);next.recycle();
+      }
+     }
+     for(int x=0;x<width;x++){
+      int a=row0[x],b=row1[x];
+      int rr=(int)Math.round(((a>>>16)&255)*(1-alpha)+((b>>>16)&255)*alpha);
+      int gg=(int)Math.round(((a>>>8)&255)*(1-alpha)+((b>>>8)&255)*alpha);
+      int bb=(int)Math.round((a&255)*(1-alpha)+(b&255)*alpha);
+      rowOut[x]=0xff000000|(rr<<16)|(gg<<8)|bb;
+     }
+     for(int col=0;col<cols;col++){int left=col*tileW,w=Math.min(tileW,width-left);output[col].setPixels(rowOut,left,width,0,yy,w,1);}
+    }
+    for(int col=0;col<cols;col++){
+     int left=col*tileW,w=Math.min(tileW,width-left);
+     String file=id+"_wm_"+col+"_"+(topRow/tileH)+".png";
+     try(OutputStream out=new FileOutputStream(new File(charts,file))){
+      if(!output[col].compress(Bitmap.CompressFormat.PNG,100,out))throw new IOException("Falha ao gravar bloco reprojetado");
+     }
+     result.put(new JSONObject().put("id",file).put("x",left).put("y",topRow).put("w",w).put("h",h));
+     output[col].recycle();output[col]=null;
+    }
+    progress(name,Math.min(99,50+(int)(49.0*(topRow+h)/height)));
+   }
+  }finally{
+   for(Bitmap b:source)if(b!=null&&!b.isRecycled())b.recycle();
+   for(Bitmap b:output)if(b!=null&&!b.isRecycled())b.recycle();
+  }
+  return result;
  }
  static double mercatorY(double latitude,boolean ellipsoidal){
   double phi=Math.toRadians(latitude),y=Math.log(Math.tan(Math.PI/4+phi/2));
