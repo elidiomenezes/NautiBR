@@ -295,7 +295,7 @@ public class ChartImportService extends Service {
    double err=Math.hypot(px,py);pixelError+=err*err;maxPixelError=Math.max(maxPixelError,err);
   }
   double rms=Math.sqrt(pixelError/refs.size());
-  if(maxPixelError>3 || rms>1.5)throw new IOException("Georreferenciamento rejeitado: RMS "+String.format(Locale.US,"%.2f",rms)+" px, máximo "+String.format(Locale.US,"%.2f",maxPixelError)+" px");
+  boolean reducedGeoreferenceAccuracy=maxPixelError>3 || rms>1.5;
   JSONArray corners=new JSONArray();
   for(int[] p:new int[][]{{0,0},{width,0},{0,height},{width,height}}){
    double x=(double)p[0]/width,y=(double)p[1]/height;
@@ -306,7 +306,7 @@ public class ChartImportService extends Service {
   }
   JSONObject meta=new JSONObject();meta.put("id",id+".png");meta.put("name",name);meta.put("corners",corners);meta.put("tiles",tiles);
   meta.put("originalWidth",width);meta.put("originalHeight",height);meta.put("previewWidth",width);meta.put("previewHeight",height);
-  meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);
+  meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);meta.put("reducedGeoreferenceAccuracy",reducedGeoreferenceAccuracy);
   try(OutputStream out=new FileOutputStream(new File(charts,id+".kap.json"))){out.write(meta.toString().getBytes("UTF-8"));}
  }
  double[] solve3(double[][] matrix,double[] rhs)throws IOException{
