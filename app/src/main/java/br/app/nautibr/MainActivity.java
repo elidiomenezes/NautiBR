@@ -144,9 +144,13 @@ public class MainActivity extends Activity {
  void status(String s){callback("onStatus",s);}
  public class Bridge{
   @JavascriptInterface public void searchVesselPhoto(String key,String mmsi,String name){
-   if(key==null||key.trim().isEmpty()||key.length()>512||mmsi==null||!mmsi.matches("[0-9]{9}")||name==null||name.length()>100)return;
+   if(key==null||key.trim().isEmpty()||key.length()>512||mmsi==null||!mmsi.matches("[0-9]{9}")||name==null||name.length()>100){
+    android.util.Log.w("NautiBR","SerpAPI invalid request parameters");
+    return;
+   }
+   android.util.Log.i("NautiBR","SerpAPI request started MMSI="+mmsi);
    new Thread(()->{
-    String url="";
+    String url="",error="";
     try{
      String query=mmsi+" "+name.trim()+" ship vessel";
      okhttp3.HttpUrl endpoint=okhttp3.HttpUrl.get("https://serpapi.com/search.json").newBuilder()
@@ -154,10 +158,11 @@ public class MainActivity extends Activity {
       .addQueryParameter("api_key",key.trim()).build();
      okhttp3.Request request=new okhttp3.Request.Builder().url(endpoint).header("Accept","application/json").build();
      try(okhttp3.Response response=aisHttp.newCall(request).execute()){
-      if(!response.isSuccessful())throw new IOException("SerpAPI HTTP "+response.code());
+      android.util.Log.i("NautiBR","SerpAPI HTTP status="+response.code()+" MMSI="+mmsi);
+      if(!response.isSuccessful())throw new IOException("HTTP "+response.code());
       String body=response.body()==null?"":response.body().string();
       JSONObject data=new JSONObject(body);
-      if(data.has("error"))throw new IOException("SerpAPI: "+data.optString("error"));
+      if(data.has("error"))throw new IOException("API error: "+data.optString("error"));
       JSONArray results=data.optJSONArray("images_results");
       if(results!=null&&results.length()>0){
        JSONObject first=results.optJSONObject(0);
@@ -167,10 +172,15 @@ public class MainActivity extends Activity {
         if(!url.startsWith("https://"))url="";
        }
       }
+      android.util.Log.i("NautiBR","SerpAPI results="+(results==null?0:results.length())+" MMSI="+mmsi);
      }
-    }catch(Exception e){android.util.Log.w("NautiBR","SerpAPI image lookup failed: "+e.getMessage());}
-    final String result=url;
-    runOnUiThread(()->web.evaluateJavascript("onSerpVesselPhoto("+JSONObject.quote(mmsi)+","+JSONObject.quote(result)+")",null));
+    }catch(Exception e){
+     error=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();
+     if(error.length()>160)error=error.substring(0,160);
+     android.util.Log.w("NautiBR","SerpAPI failed MMSI="+mmsi+" reason="+error);
+    }
+    final String result=url,err=error;
+    runOnUiThread(()->web.evaluateJavascript("onSerpVesselPhoto("+JSONObject.quote(mmsi)+","+JSONObject.quote(result)+","+JSONObject.quote(err)+")",null));
    },"SerpAISPhoto").start();
   }
   @JavascriptInterface public String aisDiagnostics(){return "VERSÃO INSTALADA: NautiBR "+AisService.buildLabel(MainActivity.this)+"\\n"+getSharedPreferences("ais_diagnostics",MODE_PRIVATE).getString("log","");}
