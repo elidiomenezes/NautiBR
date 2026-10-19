@@ -50,6 +50,8 @@ public class AisService extends Service {
  private String mode="",key="",host="";
  private int port;
  private double lat,lon,radius;
+ private String extraAreas="[]";
+ private AisTrackDb trackDb;
  private final LinkedHashMap<String,String> recent=new LinkedHashMap<>();
  public static void emit(String fn,String data){
   AisService svc=current;
@@ -58,6 +60,7 @@ public class AisService extends Service {
  private void deliver(String fn,String data){
   Intent i=new Intent("br.app.nautibr.AIS_EVENT");i.setPackage(getPackageName());i.putExtra("fn",fn);i.putExtra("data",data);sendBroadcast(i);
   if("onAisStreamMessage".equals(fn)||"onAisSentence".equals(fn)){
+   if(trackDb!=null && "onAisStreamMessage".equals(fn))trackDb.ingestStream(data);
    synchronized(recent){
     String id=Long.toString(System.currentTimeMillis())+"_"+recent.size();
     recent.put(id,data);
@@ -69,7 +72,7 @@ public class AisService extends Service {
   }
  }
  @Override public void onCreate(){
-  super.onCreate();installCrashHandler(this);diagnostic(this,"AIS service onCreate Android "+Build.VERSION.SDK_INT);current=this;
+  super.onCreate();installCrashHandler(this);diagnostic(this,"AIS service onCreate Android "+Build.VERSION.SDK_INT);current=this;trackDb=new AisTrackDb(this);
   if(Build.VERSION.SDK_INT>=26){
    NotificationChannel channel=new NotificationChannel(CHANNEL,"Monitor AIS",NotificationManager.IMPORTANCE_LOW);
    getSystemService(NotificationManager.class).createNotificationChannel(channel);
@@ -101,7 +104,7 @@ public class AisService extends Service {
   foreground("AIS · iniciando");
   disconnect();
   if(ACTION_STREAM.equals(action)){
-   key=intent.getStringExtra("key");lat=intent.getDoubleExtra("lat",0);lon=intent.getDoubleExtra("lon",0);radius=intent.getDoubleExtra("radius",20);
+   key=intent.getStringExtra("key");lat=intent.getDoubleExtra("lat",0);lon=intent.getDoubleExtra("lon",0);radius=intent.getDoubleExtra("radius",20);extraAreas=intent.getStringExtra("extraAreas");if(extraAreas==null)extraAreas="[]";
    if(key==null||key.isEmpty()||!Double.isFinite(lat)||!Double.isFinite(lon)||!Double.isFinite(radius)||radius<1||radius>300){stopForeground(STOP_FOREGROUND_REMOVE);stopSelfResult(startId);return START_NOT_STICKY;}
    mode="stream";active=true;save();connectStream(generation,0);
   }else if(ACTION_TCP.equals(action)){
@@ -118,7 +121,7 @@ public class AisService extends Service {
  }
  private void save(){
   getSharedPreferences(PREF,MODE_PRIVATE).edit().putBoolean("active",active).putString("mode",mode)
-   .putString("key",key).putString("host",host).putInt("port",port)
+   .putString("key",key).putString("extraAreas",extraAreas).putString("host",host).putInt("port",port)
    .putLong("lat",Double.doubleToRawLongBits(lat)).putLong("lon",Double.doubleToRawLongBits(lon))
    .putLong("radius",Double.doubleToRawLongBits(radius)).apply();
  }
@@ -128,6 +131,7 @@ public class AisService extends Service {
   Intent i=new Intent(this,AisService.class);
   if("stream".equals(p.getString("mode",""))){
    i.setAction(ACTION_STREAM).putExtra("key",p.getString("key",""))
+    .putExtra("extraAreas",p.getString("extraAreas","[]"))
     .putExtra("lat",Double.longBitsToDouble(p.getLong("lat",0)))
     .putExtra("lon",Double.longBitsToDouble(p.getLong("lon",0)))
     .putExtra("radius",Double.longBitsToDouble(p.getLong("radius",0)));
@@ -156,7 +160,19 @@ public class AisService extends Service {
    double dlat=radius/111.32,dlon=radius/(111.32*Math.max(.01,Math.cos(Math.toRadians(lat))));
    JSONArray box=new JSONArray().put(new JSONArray().put(Math.max(-90,lat-dlat)).put(Math.max(-180,lon-dlon)))
     .put(new JSONArray().put(Math.min(90,lat+dlat)).put(Math.min(180,lon+dlon)));
-   String sub=new JSONObject().put("APIKey",key).put("BoundingBoxes",new JSONArray().put(box))
+   JSONArray boxes=new JSONArray().put(box);
+   JSONArray extras=new JSONArray(extraAreas);
+   if(extras.length()>8)throw new IOException("Maximum 8 extra AIS regions");
+   for(int j=0;j<extras.length();j++){
+    JSONArray region=extras.getJSONArray(j);
+    double la=region.getDouble(0),lo=region.getDouble(1),ra=region.getDouble(2);
+    if(!Double.isFinite(la)||!Double.isFinite(lo)||!Double.isFinite(ra)||Math.abs(la)>90||Math.abs(lo)>180||ra<1||ra>300)
+     throw new IOException("Invalid extra AIS region");
+    double dy=ra/111.32,dx=ra/(111.32*Math.max(.01,Math.cos(Math.toRadians(la))));
+    boxes.put(new JSONArray().put(new JSONArray().put(Math.max(-90,la-dy)).put(Math.max(-180,lo-dx)))
+      .put(new JSONArray().put(Math.min(90,la+dy)).put(Math.min(180,lo+dx))));
+   }
+   String sub=new JSONObject().put("APIKey",key).put("BoundingBoxes",boxes)
     .put("FilterMessageTypes",new JSONArray().put("PositionReport").put("StandardClassBPositionReport").put("ExtendedClassBPositionReport").put("ShipStaticData").put("StaticDataReport")).toString();
    ws=client.newWebSocket(new Request.Builder().url("wss://stream.aisstream.io/v0/stream").build(),new WebSocketListener(){
     boolean opened=false;
@@ -206,6 +222,6 @@ public class AisService extends Service {
    }
   },"nautibr-ais-tcp");tcpThread.start();
  }
- @Override public void onDestroy(){disconnect();current=null;client.dispatcher().executorService().shutdown();super.onDestroy();}
+ @Override public void onDestroy(){disconnect();current=null;if(trackDb!=null)trackDb.close();client.dispatcher().executorService().shutdown();super.onDestroy();}
  @Override public IBinder onBind(Intent intent){return null;}
 }

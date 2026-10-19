@@ -143,10 +143,60 @@ public class MainActivity extends Activity {
  void callback(String fn,String value){runOnUiThread(()->web.evaluateJavascript(fn+"("+JSONObject.quote(value)+")",null));}
  void status(String s){callback("onStatus",s);}
  public class Bridge{
+  @JavascriptInterface public void searchVesselPhoto(String key,String mmsi,String name){
+   if(key==null||key.trim().isEmpty()||key.length()>512||mmsi==null||!mmsi.matches("[0-9]{9}")||name==null||name.length()>100){
+    android.util.Log.w("NautiBR","SerpAPI invalid request parameters");
+    return;
+   }
+   android.util.Log.i("NautiBR","SerpAPI request started MMSI="+mmsi);
+   new Thread(()->{
+    String url="",error="";
+    try{
+     String query=mmsi+" "+name.trim()+" ship vessel";
+     okhttp3.HttpUrl endpoint=okhttp3.HttpUrl.get("https://serpapi.com/search.json").newBuilder()
+      .addQueryParameter("engine","google_images").addQueryParameter("q",query)
+      .addQueryParameter("api_key",key.trim()).build();
+     okhttp3.Request request=new okhttp3.Request.Builder().url(endpoint).header("Accept","application/json").build();
+     try(okhttp3.Response response=aisHttp.newCall(request).execute()){
+      android.util.Log.i("NautiBR","SerpAPI HTTP status="+response.code()+" MMSI="+mmsi);
+      if(!response.isSuccessful())throw new IOException("HTTP "+response.code());
+      String body=response.body()==null?"":response.body().string();
+      JSONObject data=new JSONObject(body);
+      if(data.has("error"))throw new IOException("API error: "+data.optString("error"));
+      JSONArray results=data.optJSONArray("images_results");
+      if(results!=null&&results.length()>0){
+       JSONObject first=results.optJSONObject(0);
+       if(first!=null){
+        url=first.optString("thumbnail","");
+        if(!url.startsWith("https://"))url=first.optString("original","");
+        if(!url.startsWith("https://"))url="";
+       }
+      }
+      android.util.Log.i("NautiBR","SerpAPI results="+(results==null?0:results.length())+" MMSI="+mmsi);
+     }
+    }catch(Exception e){
+     error=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();
+     if(error.length()>160)error=error.substring(0,160);
+     android.util.Log.w("NautiBR","SerpAPI failed MMSI="+mmsi+" reason="+error);
+    }
+    final String result=url,err=error;
+    runOnUiThread(()->web.evaluateJavascript("onSerpVesselPhoto("+JSONObject.quote(mmsi)+","+JSONObject.quote(result)+","+JSONObject.quote(err)+")",null));
+   },"SerpAISPhoto").start();
+  }
   @JavascriptInterface public String aisDiagnostics(){return "VERSÃO INSTALADA: NautiBR "+AisService.buildLabel(MainActivity.this)+"\\n"+getSharedPreferences("ais_diagnostics",MODE_PRIVATE).getString("log","");}
   @JavascriptInterface public String installedBuild(){return AisService.buildLabel(MainActivity.this);}
   @JavascriptInterface public void clearAisDiagnostics(){getSharedPreferences("ais_diagnostics",MODE_PRIVATE).edit().remove("log").apply();}
 
+  @JavascriptInterface public void connectAISStreamAreas(String key,double lat,double lon,double radius,String areas){
+   if(key==null||key.trim().isEmpty()||key.length()>512||!Double.isFinite(lat)||Math.abs(lat)>90||!Double.isFinite(lon)||Math.abs(lon)>180||!Double.isFinite(radius)||radius<1||radius>300)return;
+   try{
+    JSONArray extra=new JSONArray(areas);
+    if(extra.length()>8)throw new IllegalArgumentException("Maximum 8 extra regions");
+    Intent i=new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STREAM);
+    i.putExtra("key",key.trim()).putExtra("lat",lat).putExtra("lon",lon).putExtra("radius",radius).putExtra("extraAreas",extra.toString());
+    startForegroundService(i);
+   }catch(Exception e){callback("onAisStatus","AISStream regions: "+e.getMessage());}
+  }
   @JavascriptInterface public void stopAISStream(){startService(new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STOP));}
   @JavascriptInterface public void connectAISStream(String key,double lat,double lon,double radius){
    if(key==null||key.trim().isEmpty()||key.length()>512||!Double.isFinite(lat)||Math.abs(lat)>90||!Double.isFinite(lon)||Math.abs(lon)>180||!Double.isFinite(radius)||radius<1||radius>300){callback("onAisStatus","AISStream: parâmetros inválidos");return;}
@@ -187,7 +237,7 @@ public class MainActivity extends Activity {
   }
   @JavascriptInterface public void copyText(String value){runOnUiThread(()->{ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("NautiBR",value));});}
   @JavascriptInterface public void importCharts(){runOnUiThread(()->{
-   Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("*/*");i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/zip","application/octet-stream","application/x-bsb","image/png","image/jpeg","image/webp"});i.addCategory(Intent.CATEGORY_OPENABLE);
+   Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("application/zip");i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/zip","application/x-zip-compressed","application/octet-stream"});i.addCategory(Intent.CATEGORY_OPENABLE);
    i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,PICK);
   });}
   @JavascriptInterface public String bsbFiles(){
@@ -244,6 +294,8 @@ public class MainActivity extends Activity {
 
  }
  int importChartPackage(Uri uri,String packageName,int req)throws Exception{
+  if(req==PICK && (packageName==null || !packageName.matches("(?i)^[0-9_]+\\.zip$")))
+   throw new IOException("Nome de carta inválido: use apenas dígitos e underscore, com extensão .zip");
   File staged=File.createTempFile("nautibr-package-", ".zip",getCacheDir());
   File tempDir=new File(getCacheDir(),"nautibr-"+UUID.randomUUID().toString());
   tempDir.mkdirs();

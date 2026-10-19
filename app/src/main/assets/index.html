@@ -9,7 +9,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 #status{padding:10px;font-size:12px;color:#d1e1ef;overflow-wrap:anywhere}.file{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #345;padding:10px 0;gap:10px}
 .file span{overflow-wrap:anywhere}.warning{color:#f1c987;font-size:12px}#mapname{font-size:13px;padding-bottom:8px;display:flex;align-items:center;flex-wrap:wrap;gap:5px}#mapScreen>div:nth-of-type(3){flex-wrap:wrap}#mapScreen>div:nth-of-type(3) button{flex:1;min-width:90px}.nauti-graticule-label{background:transparent;border:0;pointer-events:none!important;white-space:nowrap}.nauti-graticule-label span{display:inline-block;padding:2px 4px;border-radius:3px;background:#fffde8e8;color:#142d3c;font:11px monospace;font-weight:700;box-shadow:0 1px 3px #0006}.ais-detail-label.leaflet-tooltip{background:#102334;color:#edf6fc;border:1px solid #5b839c;border-radius:7px;box-shadow:0 3px 12px #0008;padding:6px 9px;font:12px system-ui,sans-serif;white-space:nowrap;pointer-events:auto}.ais-detail-label.leaflet-tooltip:before{border-top-color:#5b839c}.ais-detail-label strong{font-size:12px;color:#fff}.ais-detail-label small{color:#b6d0df;font-size:11px}.ais-popup .leaflet-popup-content-wrapper{background:#102334;color:#edf6fc;border:1px solid #5b839c;border-radius:10px}.ais-popup .leaflet-popup-content{margin:12px;width:min(300px,75vw)!important}.ais-popup .leaflet-popup-tip{background:#102334}.ais-popup .leaflet-popup-close-button{color:#d8e8f4!important}.ais-popup-table{border-collapse:collapse;width:100%;font:11px system-ui,sans-serif;table-layout:fixed}.ais-popup-table th,.ais-popup-table td{padding:6px 5px;border-bottom:1px solid #29445a;text-align:left;vertical-align:top;overflow-wrap:anywhere}.ais-popup-table th{width:35%;color:#a9c7d8;font-weight:500}.ais-popup-title{font:600 14px system-ui,sans-serif;margin-bottom:8px}.ais-popup-scroll{max-height:min(45vh,330px);overflow:auto}.ais-popup .leaflet-popup-content{width:min(310px,78vw)!important;max-height:min(56vh,440px);overflow:auto}.ais-popup-title{font-size:15px;line-height:1.3}.ais-popup-title small{display:block;color:#9eb8c9;font-size:11px;font-weight:400;margin-top:3px}.ais-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:10px 0}.ais-metric{background:#1c3c52;border:1px solid #35566a;border-radius:8px;padding:8px 5px;text-align:center;min-width:0}.ais-metric span{display:block;font-size:9px;color:#a7c5d8;letter-spacing:.5px}.ais-metric b{display:block;font-size:18px;margin-top:4px;font-variant-numeric:tabular-nums}.ais-metric small{display:block;color:#b6ccdb;font-size:10px}.ais-section-title{font-size:10px;color:#80cfff;text-transform:uppercase;letter-spacing:.8px;margin:12px 0 4px;font-weight:700}.ais-info{display:flex;justify-content:space-between;align-items:start;gap:12px;border-bottom:1px solid #29445a;padding:5px 0;font-size:12px}.ais-info span{color:#a9c7d8}.ais-info strong{text-align:right;font-weight:500;max-width:62%;overflow-wrap:anywhere}.ais-section{margin-top:9px;border-top:1px solid #35566a;padding-top:7px}.ais-section summary{font-size:12px;color:#80cfff;font-weight:700;cursor:pointer;padding:5px 0}.ais-section[open] summary{margin-bottom:5px}.ais-raw{margin-top:10px;font-size:11px;color:#a9c7d8}.ais-raw pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;font-size:10px;color:#d9e8f1}.ais-popup-header{display:flex;align-items:center;gap:12px;margin-bottom:12px}.ais-photo-frame{width:78px;height:78px;flex:0 0 78px;border:1px solid #385369;border-radius:10px;background:transparent;overflow:hidden}.ais-photo-frame img{display:block;width:100%;height:100%;object-fit:cover;opacity:0}.ais-popup-header .ais-popup-title{min-width:0;overflow-wrap:anywhere}
 </style></head>
-<body><header><strong>NautiBR · build 88</strong><span>Cartas náuticas</span></header>
+<body><header><strong>NautiBR · build 106</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
 <section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div><div id="ownStatus" style="font-size:12px;padding:5px 0">GPS: aguardando posição</div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
@@ -27,8 +27,9 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <p>Fonte internet: AISStream via WebSocket seguro. A chave é inserida no aplicativo e não está incluída no APK.</p>
 <div style="display:flex;gap:6px;flex-wrap:wrap"><input id="aisUrl" value="wss://stream.aisstream.io/v0/stream" readonly style="flex:1;min-width:220px"><input id="aisKey" type="text" autocomplete="off" spellcheck="false" placeholder="AISStream API Key" style="flex:1;min-width:180px"></div>
 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><label>Latitude <input id="aisLat" type="number" step="any" value="-23.9608" style="width:135px"></label><label>Longitude <input id="aisLon" type="number" step="any" value="-46.3336" style="width:135px"></label><label>Raio (km) <input id="aisRadius" type="number" min="1" max="300" value="60" style="width:70px"></label></div>
+<div style="margin-top:8px"><label>Regiões adicionais (centro da carta) <select id="aisChartRegion" style="background:#203b50;color:white;padding:8px;max-width:100%"><option value="">Escolha uma carta importada</option></select></label><button onclick="useAisChartCenter()">Usar centro da carta</button><button onclick="addAisChartRegion()">Adicionar outra região</button><button onclick="clearAisRegions()">Limpar regiões</button><div id="aisRegionList" style="font-size:12px;margin:5px 0"></div></div>
 <div style="display:flex;gap:6px;margin-top:6px"><button onclick="startAisInternet()">Conectar AISStream</button><button onclick="stopAisInternet()">Desconectar internet</button><button onclick="forgetAisKey()">Apagar chave</button></div>
-<p id="aisStatus">AIS desconectado</p><details open><summary>Diagnóstico AISStream — <span id="aisInstalledBuild">versão não consultada</span></summary><div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"><button onclick="showAisCrashReport()">Ler relatório de crash</button><button onclick="copyAisCrashReport()">Copiar relatório</button><button onclick="clearAisCrashReport()">Limpar relatório</button></div><pre id="aisCrashReport" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#14202b;padding:10px;border-radius:6px;font-size:11px;max-height:260px;overflow:auto">Toque em Ler relatório de crash após reabrir o aplicativo.</pre><pre id="aisDiagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#081521;padding:10px;border-radius:8px;font-size:12px;max-height:260px;overflow:auto">Nenhum evento recebido</pre><p style="font-size:12px">Conexão executada pelo cliente WebSocket nativo do Android, sem usar WebView para a rede. <a style="color:#8ed9ff" href="https://aisstream.io/documentation/">Documentação AISStream</a></p></details>
+<div style="margin:8px 0"><label>SerpAPI Google Images Key <input id="serpKey" type="password" autocomplete="off" placeholder="Chave para fotos AIS" style="width:65%;min-width:170px"></label><button onclick="saveSerpKey()">Salvar chave</button><button onclick="forgetSerpKey()">Apagar</button></div><div style="margin:8px 0"><button onclick="testSerpPhoto()">Testar foto: HOEGH GIANT (563180200)</button><div id="serpPhotoStatus" role="status" style="font-size:12px;margin:8px 0">Aguardando teste</div><img id="serpTestPhoto" alt="Foto de teste do navio" style="display:none;max-width:220px;max-height:150px;border-radius:6px"></div><p id="aisStatus">AIS desconectado</p><details open><summary>Diagnóstico AISStream — <span id="aisInstalledBuild">versão não consultada</span></summary><div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"><button onclick="showAisCrashReport()">Ler relatório de crash</button><button onclick="copyAisCrashReport()">Copiar relatório</button><button onclick="clearAisCrashReport()">Limpar relatório</button></div><pre id="aisCrashReport" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#14202b;padding:10px;border-radius:6px;font-size:11px;max-height:260px;overflow:auto">Toque em Ler relatório de crash após reabrir o aplicativo.</pre><pre id="aisDiagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#081521;padding:10px;border-radius:8px;font-size:12px;max-height:260px;overflow:auto">Nenhum evento recebido</pre><p style="font-size:12px">Conexão executada pelo cliente WebSocket nativo do Android, sem usar WebView para a rede. <a style="color:#8ed9ff" href="https://aisstream.io/documentation/">Documentação AISStream</a></p></details>
 <div style="display:flex;gap:8px"><button onclick="focusAisTargets()">Ver alvos no mapa</button><button onclick="clearAis()">Limpar alvos</button></div>
 <p id="aisCount">0 alvos</p><details id="aisTargetDetails"><summary>Lista de alvos AIS (debug)</summary><div style="max-height:35vh;overflow:auto"><table style="width:100%;font:11px monospace;border-collapse:collapse"><thead><tr><th>MMSI</th><th>Lat / Lon</th><th>COG</th><th>SOG kn</th><th>Idade</th><th>Fonte</th></tr></thead><tbody id="aisTargetRows"></tbody></table></div></details>
 <p class="warning">Posições AIS podem estar atrasadas, incorretas ou ausentes. Não utilizar para evitar colisões ou navegação operacional.</p>
@@ -115,6 +116,13 @@ function refresh(){
   }
  }catch(e){status('Camadas GeoJSON: '+e.message)}
  renderLayerPanel();
+ try{
+  const select=$('aisChartRegion');
+  if(select){
+   select.replaceChildren(new Option('Escolha uma carta importada',''));
+   for(const c of JSON.parse(Native.kapFiles()))select.add(new Option(c.name,c.id));
+  }
+ }catch(e){}
 }
 function openGeo(c,focus=true){
  try{
@@ -322,20 +330,39 @@ function aisPhotoUrl(payload){
  const candidates=[data?.thumbnail_url,data?.thumbnailUrl,data?.thumbnail,data?.photo_url,data?.photoUrl,data?.image_url,data?.imageUrl,data?.url,data?.photo?.thumbnail_url,data?.photo?.url,data?.photos?.[0]?.thumbnail_url,data?.photos?.[0]?.url,data?.data?.thumbnail_url,data?.data?.url,data?.data?.photos?.[0]?.url];
  return candidates.find(v=>typeof v==='string'&&/^https:\/\//i.test(v))||'';
 }
-async function loadAisPhoto(mmsi){
+function saveSerpKey(){localStorage.setItem('serpImagesKey',$('serpKey').value.trim());aisMessage('Chave SerpAPI salva neste dispositivo')}
+function forgetSerpKey(){localStorage.removeItem('serpImagesKey');$('serpKey').value='';aisMessage('Chave SerpAPI apagada')}
+const aisPhotoPending=new Set();
+function photoStatus(message){const el=$('serpPhotoStatus');if(el)el.textContent=message;}
+function saveSerpKey(){localStorage.setItem('serpImagesKey',$('serpKey').value.trim());photoStatus('Chave salva neste dispositivo');aisMessage('Chave SerpAPI salva neste dispositivo')}
+function forgetSerpKey(){localStorage.removeItem('serpImagesKey');$('serpKey').value='';photoStatus('Chave apagada');aisMessage('Chave SerpAPI apagada')}
+function onSerpVesselPhoto(mmsi,url,error){
+ const id=String(mmsi);aisPhotoPending.delete(id);
+ if(url)aisPhotoCache.set(id,url);
+ else aisPhotoCache.delete(id);
+ const img=document.getElementById('ais-photo-'+id);
+ if(img&&url){img.onload=()=>{img.style.opacity='1'};img.onerror=()=>{img.style.opacity='0';photoStatus('Imagem retornada, mas não pôde ser exibida')};img.src=url;}
+ photoStatus(error?'SerpAPI: '+error:url?'Imagem encontrada para MMSI '+id:'Nenhuma imagem encontrada para MMSI '+id);
+ const test=$('serpTestPhoto');if(test&&id==='563180200'&&url){test.src=url;test.style.display='block';}
+}
+function requestAisPhoto(mmsi,name,force){
+ const id=String(mmsi);
+ const key=($('serpKey').value||localStorage.getItem('serpImagesKey')||'').trim();
+ if(!key){photoStatus('Informe e salve a chave SerpAPI');return;}
+ if(!/^[0-9]{9}$/.test(id)){photoStatus('MMSI inválido');return;}
+ if(aisPhotoPending.has(id))return;
+ if(!force&&aisPhotoCache.has(id)){onSerpVesselPhoto(id,aisPhotoCache.get(id),'');return;}
+ if(!window.Native||typeof Native.searchVesselPhoto!=='function'){photoStatus('Ponte Android indisponível');return;}
+ aisPhotoPending.add(id);photoStatus('Consultando SerpAPI: '+id+' '+name);
+ try{Native.searchVesselPhoto(key,id,name||'');}catch(e){aisPhotoPending.delete(id);photoStatus('Falha ao chamar Android: '+e.message);}
+}
+function testSerpPhoto(){requestAisPhoto('563180200','HOEGH GIANT',true);}
+function loadAisPhoto(mmsi){
  const id=String(mmsi),img=document.getElementById('ais-photo-'+id);
  if(!img)return;
- let url=aisPhotoCache.get(id);
- if(url===undefined){
-  try{
-   const response=await fetch('https://api.openseafeed.com/v1/photos/'+encodeURIComponent(id),{mode:'cors'});
-   if(!response.ok)throw Error('HTTP '+response.status);
-   url=aisPhotoUrl(await response.json());
-  }catch(e){url='';}
-  aisPhotoCache.set(id,url);
- }
- const current=document.getElementById('ais-photo-'+id);
- if(current&&url){current.onload=()=>{current.style.opacity='1'};current.onerror=()=>{current.removeAttribute('src');current.style.opacity='0';aisPhotoCache.set(id,'')};current.src=url;}
+ const raw=aisRawData.get(Number(id))||{};
+ const name=String(aisNames.get(Number(id))||raw.MetaData?.ShipName||raw.MetaData?.Shipname||'').trim();
+ requestAisPhoto(id,name,false);
 }
 function aisDetailHtml(t){
  const raw=aisRawData.get(t.mmsi)||{},meta=raw.MetaData||{},msg=raw.Message||{};
@@ -382,6 +409,36 @@ function startAisTcp(){
 function stopAis(){Native.stopAIS();aisMessage('AIS TCP desconectado')}
 let aisSocketWeb=null;
 function forgetAisKey(){stopAisInternet();localStorage.removeItem('aisStreamKey');$('aisKey').value='';aisMessage('Chave AISStream apagada')}
+const aisExtraRegions=[];
+let aisPrimaryChartCenter=null;
+function selectedAisChartCenter(){
+ const chart=JSON.parse(Native.kapFiles()).find(c=>c.id===$('aisChartRegion').value);
+ if(!chart||!Array.isArray(chart.corners)||chart.corners.length<3)throw Error('Selecione uma carta válida');
+ const lats=chart.corners.map(p=>Number(p[0])),lons=chart.corners.map(p=>Number(p[1]));
+ return {name:chart.name,lat:(Math.min(...lats)+Math.max(...lats))/2,lon:(Math.min(...lons)+Math.max(...lons))/2};
+}
+function useAisChartCenter(){
+ try{
+  aisPrimaryChartCenter=selectedAisChartCenter();
+  $('aisLat').value=aisPrimaryChartCenter.lat.toFixed(6);
+  $('aisLon').value=aisPrimaryChartCenter.lon.toFixed(6);
+  aisMessage('AISStream: centro da carta '+aisPrimaryChartCenter.name+' selecionado');
+ }catch(e){aisMessage('Região AIS: '+e.message)}
+}
+
+function renderAisRegions(){
+ $('aisRegionList').textContent=aisExtraRegions.map((r,i)=>(i+1)+'. '+r.name+' ('+r.lat.toFixed(4)+', '+r.lon.toFixed(4)+', '+r.radius+' km)').join(' | ')||'Nenhuma região adicional';
+}
+function addAisChartRegion(){
+ try{
+  const {name,lat,lon}=selectedAisChartCenter();
+  const radius=Number($('aisRadius').value);
+  if(!(radius>=1&&radius<=300))throw Error('Raio inválido');
+  if(aisExtraRegions.length>=8)throw Error('Máximo de oito regiões adicionais');
+  aisExtraRegions.push({name,lat,lon,radius});renderAisRegions();
+ }catch(e){aisMessage('Região AIS: '+e.message)}
+}
+function clearAisRegions(){aisExtraRegions.length=0;renderAisRegions()}
 function startAisInternet(){
  const key=$('aisKey').value.trim();
  let lat=Number($('aisLat').value),lon=Number($('aisLon').value);
@@ -389,10 +446,11 @@ function startAisInternet(){
  if(!key){aisMessage('Informe a chave AISStream');return}
  const gps=ownLast,gpsLat=gps?Number(gps.lat):NaN,gpsLon=gps?Number(gps.lon):NaN;
  const gpsFresh=gps&&Number.isFinite(gpsLat)&&Number.isFinite(gpsLon)&&Number.isFinite(Number(gps.time))&&Math.abs(Date.now()-Number(gps.time))<120000;
- lat=gpsFresh?gpsLat:-23.9608;lon=gpsFresh?gpsLon:-46.3336;
+ if(aisPrimaryChartCenter){lat=aisPrimaryChartCenter.lat;lon=aisPrimaryChartCenter.lon;}
+ else{lat=gpsFresh?gpsLat:-23.9608;lon=gpsFresh?gpsLon:-46.3336;}
  $('aisLat').value=lat.toFixed(6);$('aisLon').value=lon.toFixed(6);
  if(map)map.setView([lat,lon],Math.max(map.getZoom(),12));
- aisLog('AISStream centrado em '+(gpsFresh?'GPS':'Santos (padrão)')+': '+lat.toFixed(6)+', '+lon.toFixed(6));
+ aisLog('AISStream centrado em '+(aisPrimaryChartCenter?'carta '+aisPrimaryChartCenter.name:gpsFresh?'GPS':'Santos (padrão)')+': '+lat.toFixed(6)+', '+lon.toFixed(6));
  if(!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lon)||Math.abs(lon)>180||!(radius>=1&&radius<=300)){aisMessage('Latitude, longitude ou raio inválidos');return}
  if(aisPollTimer)clearInterval(aisPollTimer);aisPollTimer=null;
  localStorage.setItem('aisStreamKey',key);
@@ -400,8 +458,8 @@ function startAisInternet(){
  const deltaLat=radius/111.32,deltaLon=radius/(111.32*Math.max(.01,Math.cos(lat*Math.PI/180)));
  const box=[[Math.max(-90,lat-deltaLat),Math.max(-180,lon-deltaLon)],[Math.min(90,lat+deltaLat),Math.min(180,lon+deltaLon)]];
  aisLog('Transporte: Android Java / OkHttp WebSocket nativo');
- aisLog('Assinatura: '+safeAisPayload({APIKey:key,BoundingBoxes:[box],FilterMessageTypes:['PositionReport','StandardClassBPositionReport','ExtendedClassBPositionReport','ShipStaticData','StaticDataReport']}));
- Native.connectAISStream(key,lat,lon,radius);
+ aisLog('Assinatura: '+safeAisPayload({APIKey:key,BoundingBoxes:[box,...aisExtraRegions.map(r=>{const a=r.radius/111.32,b=r.radius/(111.32*Math.max(.01,Math.cos(r.lat*Math.PI/180)));return [[r.lat-a,r.lon-b],[r.lat+a,r.lon+b]]})],FilterMessageTypes:['PositionReport','StandardClassBPositionReport','ExtendedClassBPositionReport','ShipStaticData','StaticDataReport']}));
+ Native.connectAISStreamAreas(key,lat,lon,radius,JSON.stringify(aisExtraRegions.map(r=>[r.lat,r.lon,r.radius])));
  aisMessage('AISStream: iniciando cliente Android nativo');
 }
 function onAisStreamMessage(message){
@@ -549,6 +607,7 @@ if(window.L){map=L.map('map',{zoomControl:false,zoomAnimation:true,fadeAnimation
 else status('Falha ao carregar Leaflet incluído no APK');
 try{
  $('aisKey').value=localStorage.getItem('aisStreamKey')||'';
+ $('serpKey').value=localStorage.getItem('serpImagesKey')||'';
  const area=JSON.parse(localStorage.getItem('aisStreamArea')||'null');
  if(area){$('aisLat').value=area.lat;$('aisLon').value=area.lon;$('aisRadius').value=area.radius}
 }catch(e){}
