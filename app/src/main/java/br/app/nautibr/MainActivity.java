@@ -147,6 +147,16 @@ public class MainActivity extends Activity {
   @JavascriptInterface public String installedBuild(){return AisService.buildLabel(MainActivity.this);}
   @JavascriptInterface public void clearAisDiagnostics(){getSharedPreferences("ais_diagnostics",MODE_PRIVATE).edit().remove("log").apply();}
 
+  @JavascriptInterface public void connectAISStreamAreas(String key,double lat,double lon,double radius,String areas){
+   if(key==null||key.trim().isEmpty()||key.length()>512||!Double.isFinite(lat)||Math.abs(lat)>90||!Double.isFinite(lon)||Math.abs(lon)>180||!Double.isFinite(radius)||radius<1||radius>300)return;
+   try{
+    JSONArray extra=new JSONArray(areas);
+    if(extra.length()>8)throw new IllegalArgumentException("Maximum 8 extra regions");
+    Intent i=new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STREAM);
+    i.putExtra("key",key.trim()).putExtra("lat",lat).putExtra("lon",lon).putExtra("radius",radius).putExtra("extraAreas",extra.toString());
+    startForegroundService(i);
+   }catch(Exception e){callback("onAisStatus","AISStream regions: "+e.getMessage());}
+  }
   @JavascriptInterface public void stopAISStream(){startService(new Intent(MainActivity.this,AisService.class).setAction(AisService.ACTION_STOP));}
   @JavascriptInterface public void connectAISStream(String key,double lat,double lon,double radius){
    if(key==null||key.trim().isEmpty()||key.length()>512||!Double.isFinite(lat)||Math.abs(lat)>90||!Double.isFinite(lon)||Math.abs(lon)>180||!Double.isFinite(radius)||radius<1||radius>300){callback("onAisStatus","AISStream: parâmetros inválidos");return;}
