@@ -1,7 +1,6 @@
 <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>NautiBR</title><link rel="stylesheet" href="/vendor/leaflet.css">
-<script src="/vendor/leaflet.js">function showImportDiagnostics(){document.getElementById('importDiagnostics').value=Native.chartImportDiagnostics();}
-</script>
+<script src="/vendor/leaflet.js"></script>
 
 <style>*{box-sizing:border-box}body{margin:0;background:#0d1824;color:#e7f0f7;font:15px system-ui,sans-serif}
 header{padding:12px 16px;background:#162b3b;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;min-width:0}header strong{font-size:16px;white-space:normal;overflow-wrap:anywhere}header span{font-size:12px;text-align:right;flex-shrink:0}nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:10px;background:#132432}nav button{min-width:0;padding:10px 3px;font-size:12px;overflow-wrap:anywhere}
@@ -12,14 +11,14 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 </style></head>
 <body><header><strong>NautiBR · build 88</strong><span>Cartas náuticas</span></header>
 <nav><button onclick="screen('mapScreen')">Mapa</button><button onclick="screen('importScreen')">Importar cartas</button><button onclick="screen('aisScreen')">AIS</button><button onclick="Native.openNavy()">Marinha ↗</button></nav>
-<section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button id="layerToggleButton" onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div><div id="ownStatus" style="font-size:12px;padding:5px 0">GPS: aguardando posição</div>
+<section class="screen active" id="mapScreen"><div id="mapname">Cartas sobrepostas · <span id="layerCount">0 camadas</span> <button onclick="toggleLayerPanel()" style="padding:4px 8px">Camadas</button></div><div id="layerPanel" style="display:none;max-height:30vh;overflow:auto;background:#162b3b;padding:8px;margin-bottom:8px;border-radius:8px"></div><div id="map"></div><div id="ownStatus" style="font-size:12px;padding:5px 0">GPS: aguardando posição</div>
 <div style="display:flex;gap:8px;margin-top:8px"><button onclick="map.zoomIn()">Zoom +</button><button onclick="map.zoomOut()">Zoom −</button><button onclick="fitKap()">Todas as cartas</button><button onclick="map.setView([-23.96,-46.3],11)">Santos</button></div>
 <p class="warning">Visualizador experimental. Não usar para navegação real.</p></section>
 <section class="screen" id="importScreen"><h3>Importar cartas</h3>
 <p>Selecione arquivos .KAP, catálogos .BSB, GeoJSON ou ZIP contendo esses formatos.</p>
 <button onclick="Native.importCharts()">Importar KAP/BSB ou ZIP</button>
 <button onclick="Native.importGeo()">Importar GeoJSON ou ZIP</button>
-<div id="chartImportPanel" style="display:none;margin:12px 0;padding:12px;border:1px solid #426075;border-radius:10px"><div id="chartImportFile" style="overflow-wrap:anywhere"></div><progress id="chartImportBar" max="100" value="0" style="width:100%;height:14px;margin:8px 0"></progress><div id="chartImportStatus"></div></div><div style="margin:12px 0"><button onclick="showImportDiagnostics()">Ver logs da importação</button> <button onclick="Native.copyText(Native.chartImportDiagnostics())">Copiar logs</button><textarea id="importDiagnostics" readonly style="width:100%;box-sizing:border-box;height:220px;background:#09131c;color:#e4edf4;margin-top:8px;font:12px monospace" placeholder="Os logs aparecerão aqui após iniciar uma importação."></textarea></div><h4>Cartas KAP</h4><div id="kapfiles"></div><h4>Catálogos BSB</h4><div id="bsbfiles"></div><p class="warning">Arquivos .BSB são lidos como catálogos/cabeçalhos. A imagem raster é fornecida pelos arquivos .KAP associados.</p><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
+<div id="chartImportPanel" style="display:none;margin:12px 0;padding:12px;border:1px solid #426075;border-radius:10px"><div id="chartImportFile" style="overflow-wrap:anywhere"></div><progress id="chartImportBar" max="100" value="0" style="width:100%;height:14px;margin:8px 0"></progress><div id="chartImportStatus"></div></div><h4>Cartas KAP</h4><div id="kapfiles"></div><h4>Catálogos BSB</h4><div id="bsbfiles"></div><p class="warning">Arquivos .BSB são lidos como catálogos/cabeçalhos. A imagem raster é fornecida pelos arquivos .KAP associados.</p><h4>Camadas GeoJSON</h4><div id="geofiles"></div>
 <p class="warning">Cartas KAP e GeoJSON importadas funcionam offline. O mapa-base OpenStreetMap exige internet.</p></section>
 <section class="screen" id="aisScreen">
 <h3>AIS — alvos em tempo real</h3>
@@ -40,7 +39,7 @@ const chartLayers=new Map();let chartInit=false;let autoChartSelection=true;
 function status(s){$('status').textContent=s}
 function screen(id){for(const e of document.querySelectorAll('.screen'))e.classList.toggle('active',e.id===id);if(id==='mapScreen'&&map)setTimeout(()=>map.invalidateSize(),50)}
 function makeRow(container,name,fn){const row=document.createElement('div'),label=document.createElement('span'),btn=document.createElement('button');row.className='file';label.textContent=name;btn.textContent='Mostrar no mapa';btn.onclick=fn;row.append(label,btn);$(container).append(row)}
-let lastChartImportMessage='',lastChartImportRevision=-1;
+let lastChartImportMessage='';
 function pollChartImport(){
  try{
   const p=JSON.parse(Native.chartImportProgress()),panel=$('chartImportPanel');
@@ -48,8 +47,7 @@ function pollChartImport(){
   panel.style.display=p.running||p.message?'block':'none';
   $('chartImportFile').textContent=p.file||'';
   $('chartImportBar').value=p.percent||0;
-  $('chartImportStatus').textContent=p.running?p.done+' de '+p.total+' concluídos · '+p.percent+'%':p.message;
-  if(p.revision!==undefined&&p.revision!==lastChartImportRevision){lastChartImportRevision=p.revision;refresh();}
+  $('chartImportStatus').textContent=p.running?'Carta '+(p.done+1)+' de '+p.total+' · '+p.percent+'%':p.message;
   if(!p.running&&p.message&&p.message!==lastChartImportMessage){lastChartImportMessage=p.message;refresh();}
  }catch(e){}
 }
@@ -57,8 +55,6 @@ setInterval(pollChartImport,700);
 function onStatus(s){status(s);refresh();if(s.includes("imagem(ns) importada(s)")){const count=parseInt(s,10);if(count>0){screen('mapScreen');setTimeout(()=>{fitKap();updateChartVisibility()},100)}}}
 function onGeoImported(s){refresh()}
 function toggleLayerPanel(){const p=$('layerPanel');p.style.display=p.style.display==='none'?'block':'none';renderLayerPanel()}
-function isLargeKap(c){return Number(c.rmsPixels)>1.5;}
-const largeKapAlerts=new Set();
 function renderLayerPanel(){
  const p=$('layerPanel');p.replaceChildren();let shown=0;
  for(const [id,e] of chartLayers){
@@ -66,14 +62,12 @@ function renderLayerPanel(){
   const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;gap:6px;margin:5px 0';
   const check=document.createElement('input');check.type='checkbox';check.checked=e.enabled;
   check.onchange=()=>{e.enabled=check.checked;updateChartVisibility();renderLayerPanel()};
-  const label=document.createElement('span');label.textContent=e.name+(e.largeKap?' · RMS ELEVADO':'');label.style.cssText='flex:1;overflow-wrap:anywhere;font-size:12px'+(e.largeKap?';color:#ff5555;font-weight:bold':'');
+  const label=document.createElement('span');label.textContent=e.name;label.style.cssText='flex:1;overflow-wrap:anywhere;font-size:12px';
   const focus=document.createElement('button');focus.textContent='Ir';focus.style.padding='5px';
   focus.onclick=()=>{e.enabled=true;map.fitBounds(e.bounds);updateChartVisibility();screen('mapScreen');renderLayerPanel()};
   row.append(check,label,focus);p.append(row);
  }
  $('layerCount').textContent=shown+' de '+chartLayers.size+' camadas';
- const warnings=[...chartLayers.values()].filter(e=>e.largeKap).length;
- const toggle=$('layerToggleButton');if(toggle){toggle.style.background=warnings?'#b4232d':'';toggle.style.color=warnings?'#fff':'';toggle.title=warnings?warnings+' carta(s) com RMS de georreferenciamento elevado':'';}
 }
 function chartCoverageArea(bounds){
  if(!bounds||!bounds.isValid())return Number.POSITIVE_INFINITY;
@@ -96,16 +90,14 @@ function updateChartVisibility(){
 
 function registerChart(id,name,layer,bounds){
  if(chartLayers.has(id))return chartLayers.get(id);
- const e={name,layer,bounds,enabled:!layer._largeKap,largeKap:!!layer._largeKap,nativeZoom:layer._kapNativeZoom??null};
+ const e={name,layer,bounds,enabled:true,nativeZoom:layer._kapNativeZoom??null};
  chartLayers.set(id,e);layer.addTo(map);updateChartVisibility();renderLayerPanel();return e;
 }
 function refresh(){
  for(const id of ['kapfiles','bsbfiles','geofiles'])$(id).replaceChildren();
  try{
   for(const c of JSON.parse(Native.kapFiles())){
-   const large=isLargeKap(c);
-   makeRow('kapfiles',c.name+(large?' ⚠ GEORREFERENCIAMENTO: RMS ELEVADO (desativada)':'')+(c.reducedGeoreferenceAccuracy?' ⚠ precisão de georreferenciamento reduzida':''),()=>openKap(c,true));
-   if(large&&!largeKapAlerts.has(c.id)){largeKapAlerts.add(c.id);alert('Carta importada: '+c.name+'\\n\\nO erro RMS dos pontos de referência excede 1,5 pixel. O georreferenciamento pode apresentar deslocamentos.\\n\\nA camada ficará DESATIVADA por padrão. Ative-a manualmente em Camadas, somente para inspeção.');}
+   makeRow('kapfiles',c.name,()=>openKap(c,true));
    if(map&&!chartLayers.has('kap:'+c.id))openKap(c,false);
   }
  }catch(e){status('Cartas KAP: '+e.message)}
@@ -195,25 +187,13 @@ function openKap(c,focus=true){
   const id="kap:"+c.id;
   if(chartLayers.has(id)){
    const e=chartLayers.get(id);
-   if(focus){e.enabled=true;updateChartVisibility();map.fitBounds(e.bounds);screen("mapScreen");renderLayerPanel()}
+   if(focus){if(!map.hasLayer(e.layer))e.layer.addTo(map);map.fitBounds(e.bounds);screen("mapScreen");renderLayerPanel()}
    return;
   }
   const corners=c.corners.map(p=>L.latLng(p[0],p[1]));
   const bounds=L.latLngBounds(corners);kapBounds=bounds;
   const nativeW=c.originalWidth||c.previewWidth,nativeH=c.originalHeight||c.previewHeight;
   if(!(nativeW>0&&nativeH>0&&corners.length>=3))throw Error('Dimensões ou referências da carta inválidas');
-  const curved=!!(c.ellipsoidalMercator&&Array.isArray(c.mercatorLongitude)&&Array.isArray(c.mercatorNorthing));
-  const kapPoint=(x,y)=>{
-   const v=x/nativeW,w=y/nativeH,lo=c.mercatorLongitude,me=c.mercatorNorthing;
-   const longitude=(lo[0]+lo[1]*v+lo[2]*w)*180/Math.PI;
-   const yy=me[0]+me[1]*v+me[2]*w;
-   let phi=2*Math.atan(Math.exp(yy))-Math.PI/2;
-   if(curved)for(let j=0;j<12;j++){
-    const e=Math.sqrt(0.0066943799901413165),z=e*Math.sin(phi);
-    phi=2*Math.atan(Math.exp(yy)*Math.pow((1+z)/(1-z),e/2))-Math.PI/2;
-   }
-   return L.latLng(phi*180/Math.PI,longitude);
-  };
   const tiles=Array.isArray(c.tiles)&&c.tiles.length?c.tiles:[{id:c.id,x:0,y:0,w:nativeW,h:nativeH}];
   // Display each original-resolution PNG strip as a native image.
   // Leaflet controls the viewport; one affine transform per strip preserves
@@ -226,39 +206,27 @@ function openKap(c,focus=true){
     this._map=m;
     this._container=L.DomUtil.create('div','nautibr-kap-overlay',m.getPanes().overlayPane);
     this._container.style.cssText='position:absolute;left:0;top:0;pointer-events:none;transform-origin:0 0;will-change:transform;';
-    this._container.style.width=(curved?0:nativeW)+'px';
-    this._container.style.height=(curved?0:nativeH)+'px';
-    // Ellipsoidal Mercator -> EPSG:3857 is nonlinear in latitude.
-    // Tessellate each native PNG tile into 64-pixel horizontal bands.
-    // Each band uses its own local affine approximation, with no resampling
-    // or downscaled preview; all bands share the same decoded image resource.
+    this._container.style.width=nativeW+'px';
+    this._container.style.height=nativeH+'px';
     this._images=tiles.map(t=>{
-     const bands=curved?Math.ceil(t.h/64):1;
-     const pieces=[];
-     for(let k=0;k<bands;k++){
-      const top=curved?k*64:0, h=Math.min(curved?64:t.h,t.h-top);
-      const img=L.DomUtil.create('img','',this._container);
-      img.src='https://nautibr.local/chart?id='+encodeURIComponent(t.id);
-      img.alt='';img.draggable=false;
-      img.style.cssText='position:absolute;max-width:none;max-height:none;pointer-events:none;';
-      img.style.left=t.x+'px';img.style.top=t.y+'px';
-      img.style.width=t.w+'px';img.style.height=t.h+'px';
-      if(curved)img.style.clipPath='inset('+top+'px 0px '+(t.h-top-h)+'px 0px)';
-      pieces.push({img,top,h});
-     }
-     return pieces;
+     const img=L.DomUtil.create('img','',this._container);
+     img.src='https://nautibr.local/chart?id='+encodeURIComponent(t.id);
+     img.alt='';img.draggable=false;
+     img.style.cssText='position:absolute;max-width:none;max-height:none;pointer-events:none;';
+     img.style.left=t.x+'px';img.style.top=t.y+'px';
+     img.style.width=t.w+'px';img.style.height=t.h+'px';
+     return img;
     });
     this._preview=null;
     const maxDim=1024,ratio=Math.min(1,maxDim/Math.max(nativeW,nativeH));
-    const preview=curved?null:document.createElement('canvas');
-    if(preview){preview.width=Math.max(1,Math.ceil(nativeW*ratio));
+    const preview=document.createElement('canvas');
+    preview.width=Math.max(1,Math.ceil(nativeW*ratio));
     preview.height=Math.max(1,Math.ceil(nativeH*ratio));
     preview.style.cssText='position:absolute;left:0;top:0;width:'+nativeW+'px;height:'+nativeH+'px;display:none;pointer-events:none;';
-    }
-    const ctx=preview?preview.getContext('2d'):null;
+    const ctx=preview.getContext('2d');
     let remaining=this._images.length,ready=0;
     for(let i=0;i<this._images.length;i++){
-     const img=this._images[i][0].img,t=tiles[i];
+     const img=this._images[i],t=tiles[i];
      const done=()=>{
       if(img.naturalWidth>0&&ctx){ctx.drawImage(img,t.x*ratio,t.y*ratio,t.w*ratio,t.h*ratio);ready++}
       remaining--;
@@ -282,23 +250,6 @@ function openKap(c,focus=true){
     this._images=[];
     this._map=null;
    },
-   _setCurved(zoomEvent){
-    const m=this._map;if(!m)return;
-    const point=(latlng)=>zoomEvent?m._latLngToNewLayerPoint(latlng,zoomEvent.zoom,zoomEvent.center):m.latLngToLayerPoint(latlng);
-    for(let i=0;i<tiles.length;i++){
-     const t=tiles[i];
-     for(const piece of this._images[i]){
-      const {img,top,h}=piece;
-      const p0=point(kapPoint(t.x,t.y+top));
-      const p1=point(kapPoint(t.x+t.w,t.y+top));
-      const p2=point(kapPoint(t.x,t.y+top+h));
-      const a=(p1.x-p0.x)/t.w,b=(p1.y-p0.y)/t.w;
-      const cc=(p2.x-p0.x)/h,d=(p2.y-p0.y)/h;
-      img.style.left='0';img.style.top='0';img.style.transformOrigin='0 0';
-      img.style.transform='matrix('+[a,b,cc,d,p0.x-cc*top,p0.y-d*top].join(',')+')';
-     }
-    }
-   },
    _setAffine(p0,p1,p2,animate){
     if(!this._container)return;
     const a=(p1.x-p0.x)/nativeW,b=(p1.y-p0.y)/nativeW;
@@ -308,20 +259,18 @@ function openKap(c,focus=true){
     el.style.transform='matrix('+[a,b,c,d,p0.x,p0.y].join(',')+')';
    },
    _beginZoom(){
-    if(curved)return;
     if(!this._preview)return;
     this._preview.style.display="block";
-    for(const pieces of this._images)for(const piece of pieces)piece.img.style.visibility="hidden";
+    for(const img of this._images)img.style.visibility="hidden";
    },
    _endZoom(){
     this._position();
     if(this._preview)this._preview.style.display="none";
-    for(const pieces of this._images)for(const piece of pieces)piece.img.style.visibility="";
+    for(const img of this._images)img.style.visibility="";
    },
    _animateZoom(e){
     if(!this._map)return;
     const m=this._map;
-    if(curved){this._setCurved(e);return;}
     this._setAffine(
       m._latLngToNewLayerPoint(corners[0],e.zoom,e.center),
       m._latLngToNewLayerPoint(corners[1],e.zoom,e.center),
@@ -330,7 +279,6 @@ function openKap(c,focus=true){
    _position(){
     if(!this._map)return;
     const m=this._map;
-    if(curved){this._setCurved(null);return;}
     this._setAffine(m.latLngToLayerPoint(corners[0]),
       m.latLngToLayerPoint(corners[1]),m.latLngToLayerPoint(corners[2]),false);
    },
@@ -340,14 +288,12 @@ function openKap(c,focus=true){
    }
   });
   const layer=new KapOverlay();
-  layer._largeKap=isLargeKap(c);
   const px0=map.project(corners[0],0),px1=map.project(corners[1],0),px2=map.project(corners[2],0);
   const scaleX=Math.hypot(px1.x-px0.x,px1.y-px0.y)/nativeW;
   const scaleY=Math.hypot(px2.x-px0.x,px2.y-px0.y)/nativeH;
   const nativeZoom=Math.log2(1/Math.max(scaleX,scaleY));
   layer._kapNativeZoom=nativeZoom;
   registerChart(id,c.name,layer,bounds);
-  if(focus){chartLayers.get(id).enabled=true;updateChartVisibility();}
   if(!focus)return;
   const center=bounds.getCenter();
   if(Number.isFinite(nativeZoom))map.setView(center,Math.max(map.getMinZoom(),Math.min(map.getMaxZoom(),Math.floor(nativeZoom))));

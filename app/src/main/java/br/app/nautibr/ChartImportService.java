@@ -13,16 +13,10 @@ public class ChartImportService extends Service {
  static final String ACTION="br.app.nautibr.IMPORT";
  static final String PREF="chart_import";
  private File charts;
- private synchronized void diag(String message){try{File f=new File(getFilesDir(),"chart-import.log");try(FileWriter w=new FileWriter(f,true)){w.write(new java.text.SimpleDateFormat("HH:mm:ss.SSS",Locale.US).format(new Date())+" "+message+"\n");}}catch(Exception ignored){}}
-
  private volatile int done=0,total=0;
  private volatile String current="";
  private volatile int percent=0;
  private volatile boolean running=false;
- private final java.util.concurrent.atomic.AtomicInteger completed=new java.util.concurrent.atomic.AtomicInteger();
- private final java.util.concurrent.atomic.AtomicInteger imported=new java.util.concurrent.atomic.AtomicInteger();
- private final java.util.concurrent.atomic.AtomicInteger revision=new java.util.concurrent.atomic.AtomicInteger();
- private final java.util.concurrent.ConcurrentHashMap<String,Integer> progressByFile=new java.util.concurrent.ConcurrentHashMap<>();
  @Override public void onCreate(){super.onCreate();charts=new File(getFilesDir(),"charts");charts.mkdirs();
   NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
   nm.createNotificationChannel(new NotificationChannel("chart_import","Importação de cartas",NotificationManager.IMPORTANCE_LOW));
@@ -33,60 +27,44 @@ public class ChartImportService extends Service {
    .setContentTitle("NautiBR · Importação de cartas").setContentText(message)
    .setProgress(100,Math.max(0,Math.min(100,pct)),false).setOngoing(true).build();
  }
- synchronized void progress(String file,int pct){
-  progressByFile.put(file,Math.max(0,Math.min(100,pct)));
-  int sum=0;for(int p:progressByFile.values())sum+=p;
-  int overall=total==0?0:Math.min(99,sum/total);
-  String label=completed.get()+"/"+total+" concluídos · "+file;
+ void progress(String file,int pct){
+  current=file;percent=Math.max(0,Math.min(100,pct));
+  String label=(done+1)+"/"+total+" · "+file;
   getSharedPreferences(PREF,MODE_PRIVATE).edit().putBoolean("running",true).putString("file",file)
-   .putInt("percent",overall).putInt("done",completed.get()).putInt("total",total)
-   .putInt("revision",revision.get()).putString("message",label).apply();
-  ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(6102,notification(label,overall));
+   .putInt("percent",percent).putInt("done",done).putInt("total",total).putString("message",label).apply();
+  ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(6102,notification(label,percent));
  }
  @Override public int onStartCommand(Intent intent,int flags,int startId){
   if(intent==null||!ACTION.equals(intent.getAction()))return START_NOT_STICKY;
   if(running)return START_NOT_STICKY;
   ArrayList<Uri> uris=intent.getParcelableArrayListExtra("uris");
   if(uris==null||uris.isEmpty())return START_NOT_STICKY;
-  try{new FileOutputStream(new File(getFilesDir(),"chart-import.log")).close();}catch(Exception ignored){}
-  diag("START files="+uris.size()+" build="+getPackageName());
-  running=true;total=uris.size();completed.set(0);imported.set(0);revision.set(0);progressByFile.clear();
+  running=true;total=uris.size();done=0;
   startForeground(6102,notification("Iniciando",0));
   final int request=intent.getIntExtra("request",42);
   new Thread(()->{
-   java.util.concurrent.ExecutorService pool=java.util.concurrent.Executors.newFixedThreadPool(Math.min(3,total));
-   java.util.List<java.util.concurrent.Future<?>> tasks=new java.util.ArrayList<>();
-   java.util.List<String> errors=java.util.Collections.synchronizedList(new java.util.ArrayList<>());
-   for(Uri uri:uris)tasks.add(pool.submit(()->{
+   int count=0;ArrayList<String> errors=new ArrayList<>();
+   for(Uri uri:uris){
     String name="carta";
     try{
      try(android.database.Cursor c=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)){
       if(c!=null&&c.moveToFirst())name=c.getString(0);
      }catch(Exception ignored){}
-     diag("FILE start "+name);progress(name,0);
+     progress(name,0);
      String lower=name.toLowerCase(Locale.ROOT);
-     int count=0;
-     if(lower.endsWith(".zip"))count=importChartPackage(uri,name,request);
+     if(lower.endsWith(".zip"))count+=importChartPackage(uri,name,request);
      else if(lower.endsWith(".tif")||lower.endsWith(".tiff"))errors.add(name+": GeoTIFF não suportado");
      else if(isKap(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveKap(in,name);count++;}}
      else if(isBsb(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveBsb(in,name);count++;}}
      else if(request==43&&isGeo(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveGeo(in,name);count++;}}
      else if(request==42&&isImage(lower)){try(InputStream in=getContentResolver().openInputStream(uri)){saveImage(in,name);count++;}}
      else errors.add(name+": formato não suportado");
-     imported.addAndGet(count);diag("FILE done "+name+" imported="+count);
-    }catch(Exception e){errors.add(name+": "+e.getMessage());diag("ERROR "+name+" "+android.util.Log.getStackTraceString(e));}
-    finally{
-     revision.incrementAndGet();
-     completed.incrementAndGet();
-     progress(name,100);
-    }
-   }));
-   for(java.util.concurrent.Future<?> task:tasks)try{task.get();}catch(Exception e){errors.add(e.toString());}
-   pool.shutdown();
-   diag("END imported="+imported.get()+" errors="+errors.size());
-   String result=imported.get()+" arquivo(s) importado(s). "+String.join("; ",errors);
-   getSharedPreferences(PREF,MODE_PRIVATE).edit().putBoolean("running",false).putInt("done",completed.get())
-    .putInt("total",total).putInt("percent",100).putInt("revision",revision.get()).putString("message",result).apply();
+    }catch(Exception e){errors.add(name+": "+e.getMessage());}
+    done++;
+   }
+   String result=count+" imagem(ns) importada(s). "+String.join("; ",errors);
+   getSharedPreferences(PREF,MODE_PRIVATE).edit().putBoolean("running",false).putInt("done",done)
+    .putInt("total",total).putInt("percent",100).putString("message",result).apply();
    NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
    nm.notify(6102,new Notification.Builder(this,"chart_import").setSmallIcon(android.R.drawable.stat_sys_download_done)
     .setContentTitle("NautiBR · Importação concluída").setContentText(result).setAutoCancel(true).build());
@@ -112,7 +90,7 @@ public class ChartImportService extends Service {
    for(byte b:digest.digest())hash.append(String.format(Locale.US,"%02x",b&255));
    String packageId=hash.toString();
    File manifest=new File(charts,packageId+".package.json");
-   if(manifest.exists()){diag("SKIP duplicate ZIP sha256="+packageId);return 0;}
+   if(manifest.exists())return 0;
    LinkedHashMap<String,File> kaps=new LinkedHashMap<>();
    LinkedHashMap<String,File> bsbs=new LinkedHashMap<>();
    LinkedHashMap<String,File> geos=new LinkedHashMap<>();
@@ -141,7 +119,6 @@ public class ChartImportService extends Service {
      else geos.put(key,file);
     }
    }
-   diag("ZIP entries="+entries+" kaps="+kaps.size()+" bsbs="+bsbs.size());
    // Catalogs are parsed first, independent of entry order in the ZIP.
    JSONArray catalogs=new JSONArray(),chartsInPackage=new JSONArray();
    LinkedHashMap<String,JSONArray> referencedBy=new LinkedHashMap<>();
@@ -285,67 +262,35 @@ public class ChartImportService extends Service {
    if(Math.abs(r[2])>=85)throw new IOException("Latitude REF fora de Mercator");
    double[] v={1,r[0]/width,r[1]/height};
    double mx=Math.toRadians(r[3]);
-   for(int i=0;i<3;i++){east[i]+=v[i]*mx;for(int j=0;j<3;j++)normal[i][j]+=v[i]*v[j];}
+   double my=Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));
+   for(int i=0;i<3;i++){east[i]+=v[i]*mx;north[i]+=v[i]*my;for(int j=0;j<3;j++)normal[i][j]+=v[i]*v[j];}
   }
-  double[] lon=solve3(normal,east),merc=null;
-  boolean ellipsoidal=false;
-  double bestError=Double.POSITIVE_INFINITY;
-  for(int mode=0;mode<2;mode++){
-   double[] northCandidate=new double[3];
-   for(double[] r:refs){
-    double[] v={1,r[0]/width,r[1]/height};
-    double my=mercatorY(r[2],mode==1);
-    for(int i=0;i<3;i++)northCandidate[i]+=v[i]*my;
-   }
-   double[] candidate=solve3(normal,northCandidate);
-   double sum=0;
-   for(double[] r:refs){
-    double[] v={1,r[0]/width,r[1]/height};
-    double d=candidate[0]+candidate[1]*v[1]+candidate[2]*v[2]-mercatorY(r[2],mode==1);
-    sum+=d*d;
-   }
-   if(sum<bestError){bestError=sum;merc=candidate;ellipsoidal=mode==1;}
-  }
+  double[] lon=solve3(normal,east),merc=solve3(normal,north);
   double pixelError=0,maxPixelError=0;
   double determinant=lon[1]*merc[2]-lon[2]*merc[1];
   if(Math.abs(determinant)<1e-14)throw new IOException("Transformação REF degenerada");
   for(double[] r:refs){
    double[] v={1,r[0]/width,r[1]/height};
    double dx=lon[0]+lon[1]*v[1]+lon[2]*v[2]-Math.toRadians(r[3]);
-   double dy=merc[0]+merc[1]*v[1]+merc[2]*v[2]-mercatorY(r[2],ellipsoidal);
+   double dy=merc[0]+merc[1]*v[1]+merc[2]*v[2]-Math.log(Math.tan(Math.PI/4+Math.toRadians(r[2])/2));
    double px=(merc[2]*dx-lon[2]*dy)/determinant*width;
    double py=(-merc[1]*dx+lon[1]*dy)/determinant*height;
    double err=Math.hypot(px,py);pixelError+=err*err;maxPixelError=Math.max(maxPixelError,err);
   }
   double rms=Math.sqrt(pixelError/refs.size());
-  boolean reducedGeoreferenceAccuracy=maxPixelError>3 || rms>1.5;
+  if(maxPixelError>3 || rms>1.5)throw new IOException("Georreferenciamento rejeitado: RMS "+String.format(Locale.US,"%.2f",rms)+" px, máximo "+String.format(Locale.US,"%.2f",maxPixelError)+" px");
   JSONArray corners=new JSONArray();
   for(int[] p:new int[][]{{0,0},{width,0},{0,height},{width,height}}){
    double x=(double)p[0]/width,y=(double)p[1]/height;
    double longitude=Math.toDegrees(lon[0]+lon[1]*x+lon[2]*y);
-   double latitude=inverseMercatorY(merc[0]+merc[1]*x+merc[2]*y,ellipsoidal);
+   double latitude=Math.toDegrees(2*Math.atan(Math.exp(merc[0]+merc[1]*x+merc[2]*y))-Math.PI/2);
    if(!Double.isFinite(latitude)||!Double.isFinite(longitude)||Math.abs(latitude)>85||Math.abs(longitude)>180)throw new IOException("Coordenadas inválidas");
    corners.put(new JSONArray().put(latitude).put(longitude));
   }
-  diag("KAP metadata name="+name+" size="+width+"x"+height+" tiles="+tiles.length()+" rms="+rms+" maxError="+maxPixelError+" ellipsoidal="+ellipsoidal+" corners="+corners.toString());
-  for(int ti=0;ti<tiles.length();ti++){JSONObject t=tiles.getJSONObject(ti);String tileId=t.optString("id");File tileFile=new File(charts,tileId);if(ti<5||!tileFile.isFile())diag("TILE "+ti+" name="+tileId+" exists="+tileFile.isFile()+" bytes="+(tileFile.isFile()?tileFile.length():0));}
   JSONObject meta=new JSONObject();meta.put("id",id+".png");meta.put("name",name);meta.put("corners",corners);meta.put("tiles",tiles);
   meta.put("originalWidth",width);meta.put("originalHeight",height);meta.put("previewWidth",width);meta.put("previewHeight",height);
-  meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);meta.put("ellipsoidalMercator",ellipsoidal);meta.put("mercatorLongitude",new JSONArray(lon));meta.put("mercatorNorthing",new JSONArray(merc));meta.put("reducedGeoreferenceAccuracy",reducedGeoreferenceAccuracy);
+  meta.put("rmsPixels",rms);meta.put("maxErrorPixels",maxPixelError);meta.put("validatedAffine",true);
   try(OutputStream out=new FileOutputStream(new File(charts,id+".kap.json"))){out.write(meta.toString().getBytes("UTF-8"));}
- }
- static double mercatorY(double latitude,boolean ellipsoidal){
-  double phi=Math.toRadians(latitude),y=Math.log(Math.tan(Math.PI/4+phi/2));
-  if(ellipsoidal){double e=Math.sqrt(0.0066943799901413165),z=e*Math.sin(phi);y-=e/2*Math.log((1+z)/(1-z));}
-  return y;
- }
- static double inverseMercatorY(double y,boolean ellipsoidal){
-  double phi=2*Math.atan(Math.exp(y))-Math.PI/2;
-  if(ellipsoidal)for(int i=0;i<12;i++){
-   double e=Math.sqrt(0.0066943799901413165),z=e*Math.sin(phi);
-   phi=2*Math.atan(Math.exp(y)*Math.pow((1+z)/(1-z),e/2))-Math.PI/2;
-  }
-  return Math.toDegrees(phi);
  }
  double[] solve3(double[][] matrix,double[] rhs)throws IOException{
   double[][] a=new double[3][4];
