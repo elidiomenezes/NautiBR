@@ -27,6 +27,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <p>Fonte internet: AISStream via WebSocket seguro. A chave é inserida no aplicativo e não está incluída no APK.</p>
 <div style="display:flex;gap:6px;flex-wrap:wrap"><input id="aisUrl" value="wss://stream.aisstream.io/v0/stream" readonly style="flex:1;min-width:220px"><input id="aisKey" type="text" autocomplete="off" spellcheck="false" placeholder="AISStream API Key" style="flex:1;min-width:180px"></div>
 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><label>Latitude <input id="aisLat" type="number" step="any" value="-23.9608" style="width:135px"></label><label>Longitude <input id="aisLon" type="number" step="any" value="-46.3336" style="width:135px"></label><label>Raio (km) <input id="aisRadius" type="number" min="1" max="300" value="60" style="width:70px"></label></div>
+<div style="margin-top:8px"><label>Regiões adicionais (centro da carta) <select id="aisChartRegion" style="background:#203b50;color:white;padding:8px;max-width:100%"><option value="">Escolha uma carta importada</option></select></label><button onclick="addAisChartRegion()">Adicionar região</button><button onclick="clearAisRegions()">Limpar regiões</button><div id="aisRegionList" style="font-size:12px;margin:5px 0"></div></div>
 <div style="display:flex;gap:6px;margin-top:6px"><button onclick="startAisInternet()">Conectar AISStream</button><button onclick="stopAisInternet()">Desconectar internet</button><button onclick="forgetAisKey()">Apagar chave</button></div>
 <p id="aisStatus">AIS desconectado</p><details open><summary>Diagnóstico AISStream — <span id="aisInstalledBuild">versão não consultada</span></summary><div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"><button onclick="showAisCrashReport()">Ler relatório de crash</button><button onclick="copyAisCrashReport()">Copiar relatório</button><button onclick="clearAisCrashReport()">Limpar relatório</button></div><pre id="aisCrashReport" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#14202b;padding:10px;border-radius:6px;font-size:11px;max-height:260px;overflow:auto">Toque em Ler relatório de crash após reabrir o aplicativo.</pre><pre id="aisDiagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#081521;padding:10px;border-radius:8px;font-size:12px;max-height:260px;overflow:auto">Nenhum evento recebido</pre><p style="font-size:12px">Conexão executada pelo cliente WebSocket nativo do Android, sem usar WebView para a rede. <a style="color:#8ed9ff" href="https://aisstream.io/documentation/">Documentação AISStream</a></p></details>
 <div style="display:flex;gap:8px"><button onclick="focusAisTargets()">Ver alvos no mapa</button><button onclick="clearAis()">Limpar alvos</button></div>
@@ -115,6 +116,13 @@ function refresh(){
   }
  }catch(e){status('Camadas GeoJSON: '+e.message)}
  renderLayerPanel();
+ try{
+  const select=$('aisChartRegion');
+  if(select){
+   select.replaceChildren(new Option('Escolha uma carta importada',''));
+   for(const c of JSON.parse(Native.kapFiles()))select.add(new Option(c.name,c.id));
+  }
+ }catch(e){}
 }
 function openGeo(c,focus=true){
  try{
@@ -382,6 +390,24 @@ function startAisTcp(){
 function stopAis(){Native.stopAIS();aisMessage('AIS TCP desconectado')}
 let aisSocketWeb=null;
 function forgetAisKey(){stopAisInternet();localStorage.removeItem('aisStreamKey');$('aisKey').value='';aisMessage('Chave AISStream apagada')}
+const aisExtraRegions=[];
+function renderAisRegions(){
+ $('aisRegionList').textContent=aisExtraRegions.map((r,i)=>(i+1)+'. '+r.name+' ('+r.lat.toFixed(4)+', '+r.lon.toFixed(4)+', '+r.radius+' km)').join(' | ')||'Nenhuma região adicional';
+}
+function addAisChartRegion(){
+ try{
+  const id=$('aisChartRegion').value;
+  const chart=JSON.parse(Native.kapFiles()).find(c=>c.id===id);
+  if(!chart||!Array.isArray(chart.corners)||chart.corners.length<3)throw Error('Selecione uma carta válida');
+  const lats=chart.corners.map(p=>Number(p[0])),lons=chart.corners.map(p=>Number(p[1]));
+  const lat=(Math.min(...lats)+Math.max(...lats))/2,lon=(Math.min(...lons)+Math.max(...lons))/2;
+  const radius=Number($('aisRadius').value);
+  if(!(radius>=1&&radius<=300))throw Error('Raio inválido');
+  if(aisExtraRegions.length>=8)throw Error('Máximo de oito regiões adicionais');
+  aisExtraRegions.push({name:chart.name,lat,lon,radius});renderAisRegions();
+ }catch(e){aisMessage('Região AIS: '+e.message)}
+}
+function clearAisRegions(){aisExtraRegions.length=0;renderAisRegions()}
 function startAisInternet(){
  const key=$('aisKey').value.trim();
  let lat=Number($('aisLat').value),lon=Number($('aisLon').value);
@@ -400,8 +426,8 @@ function startAisInternet(){
  const deltaLat=radius/111.32,deltaLon=radius/(111.32*Math.max(.01,Math.cos(lat*Math.PI/180)));
  const box=[[Math.max(-90,lat-deltaLat),Math.max(-180,lon-deltaLon)],[Math.min(90,lat+deltaLat),Math.min(180,lon+deltaLon)]];
  aisLog('Transporte: Android Java / OkHttp WebSocket nativo');
- aisLog('Assinatura: '+safeAisPayload({APIKey:key,BoundingBoxes:[box],FilterMessageTypes:['PositionReport','StandardClassBPositionReport','ExtendedClassBPositionReport','ShipStaticData','StaticDataReport']}));
- Native.connectAISStream(key,lat,lon,radius);
+ aisLog('Assinatura: '+safeAisPayload({APIKey:key,BoundingBoxes:[box,...aisExtraRegions.map(r=>{const a=r.radius/111.32,b=r.radius/(111.32*Math.max(.01,Math.cos(r.lat*Math.PI/180)));return [[r.lat-a,r.lon-b],[r.lat+a,r.lon+b]]})],FilterMessageTypes:['PositionReport','StandardClassBPositionReport','ExtendedClassBPositionReport','ShipStaticData','StaticDataReport']}));
+ Native.connectAISStreamAreas(key,lat,lon,radius,JSON.stringify(aisExtraRegions.map(r=>[r.lat,r.lon,r.radius])));
  aisMessage('AISStream: iniciando cliente Android nativo');
 }
 function onAisStreamMessage(message){
