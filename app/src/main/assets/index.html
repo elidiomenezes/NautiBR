@@ -349,7 +349,7 @@ function requestAisPhoto(mmsi,name,force){
  const id=String(mmsi);
  const key=($('serpKey').value||localStorage.getItem('serpImagesKey')||'').trim();
  if(!key){photoStatus('Informe e salve a chave SerpAPI');return;}
- if(!/^\\d{9}$/.test(id)){photoStatus('MMSI inválido');return;}
+ if(!/^[0-9]{9}$/.test(id)){photoStatus('MMSI inválido');return;}
  if(aisPhotoPending.has(id))return;
  if(!force&&aisPhotoCache.has(id)){onSerpVesselPhoto(id,aisPhotoCache.get(id),'');return;}
  if(!window.Native||typeof Native.searchVesselPhoto!=='function'){photoStatus('Ponte Android indisponível');return;}
