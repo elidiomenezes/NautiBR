@@ -27,7 +27,7 @@ button{border:1px solid #456579;border-radius:8px;padding:10px;background:#284b6
 <p>Fonte internet: AISStream via WebSocket seguro. A chave é inserida no aplicativo e não está incluída no APK.</p>
 <div style="display:flex;gap:6px;flex-wrap:wrap"><input id="aisUrl" value="wss://stream.aisstream.io/v0/stream" readonly style="flex:1;min-width:220px"><input id="aisKey" type="text" autocomplete="off" spellcheck="false" placeholder="AISStream API Key" style="flex:1;min-width:180px"></div>
 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><label>Latitude <input id="aisLat" type="number" step="any" value="-23.9608" style="width:135px"></label><label>Longitude <input id="aisLon" type="number" step="any" value="-46.3336" style="width:135px"></label><label>Raio (km) <input id="aisRadius" type="number" min="1" max="300" value="60" style="width:70px"></label></div>
-<div style="margin-top:8px"><label>Regiões adicionais (centro da carta) <select id="aisChartRegion" style="background:#203b50;color:white;padding:8px;max-width:100%"><option value="">Escolha uma carta importada</option></select></label><button onclick="addAisChartRegion()">Adicionar região</button><button onclick="clearAisRegions()">Limpar regiões</button><div id="aisRegionList" style="font-size:12px;margin:5px 0"></div></div>
+<div style="margin-top:8px"><label>Regiões adicionais (centro da carta) <select id="aisChartRegion" style="background:#203b50;color:white;padding:8px;max-width:100%"><option value="">Escolha uma carta importada</option></select></label><button onclick="useAisChartCenter()">Usar centro da carta</button><button onclick="addAisChartRegion()">Adicionar outra região</button><button onclick="clearAisRegions()">Limpar regiões</button><div id="aisRegionList" style="font-size:12px;margin:5px 0"></div></div>
 <div style="display:flex;gap:6px;margin-top:6px"><button onclick="startAisInternet()">Conectar AISStream</button><button onclick="stopAisInternet()">Desconectar internet</button><button onclick="forgetAisKey()">Apagar chave</button></div>
 <p id="aisStatus">AIS desconectado</p><details open><summary>Diagnóstico AISStream — <span id="aisInstalledBuild">versão não consultada</span></summary><div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0"><button onclick="showAisCrashReport()">Ler relatório de crash</button><button onclick="copyAisCrashReport()">Copiar relatório</button><button onclick="clearAisCrashReport()">Limpar relatório</button></div><pre id="aisCrashReport" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#14202b;padding:10px;border-radius:6px;font-size:11px;max-height:260px;overflow:auto">Toque em Ler relatório de crash após reabrir o aplicativo.</pre><pre id="aisDiagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere;background:#081521;padding:10px;border-radius:8px;font-size:12px;max-height:260px;overflow:auto">Nenhum evento recebido</pre><p style="font-size:12px">Conexão executada pelo cliente WebSocket nativo do Android, sem usar WebView para a rede. <a style="color:#8ed9ff" href="https://aisstream.io/documentation/">Documentação AISStream</a></p></details>
 <div style="display:flex;gap:8px"><button onclick="focusAisTargets()">Ver alvos no mapa</button><button onclick="clearAis()">Limpar alvos</button></div>
@@ -391,20 +391,32 @@ function stopAis(){Native.stopAIS();aisMessage('AIS TCP desconectado')}
 let aisSocketWeb=null;
 function forgetAisKey(){stopAisInternet();localStorage.removeItem('aisStreamKey');$('aisKey').value='';aisMessage('Chave AISStream apagada')}
 const aisExtraRegions=[];
+let aisPrimaryChartCenter=null;
+function selectedAisChartCenter(){
+ const chart=JSON.parse(Native.kapFiles()).find(c=>c.id===$('aisChartRegion').value);
+ if(!chart||!Array.isArray(chart.corners)||chart.corners.length<3)throw Error('Selecione uma carta válida');
+ const lats=chart.corners.map(p=>Number(p[0])),lons=chart.corners.map(p=>Number(p[1]));
+ return {name:chart.name,lat:(Math.min(...lats)+Math.max(...lats))/2,lon:(Math.min(...lons)+Math.max(...lons))/2};
+}
+function useAisChartCenter(){
+ try{
+  aisPrimaryChartCenter=selectedAisChartCenter();
+  $('aisLat').value=aisPrimaryChartCenter.lat.toFixed(6);
+  $('aisLon').value=aisPrimaryChartCenter.lon.toFixed(6);
+  aisMessage('AISStream: centro da carta '+aisPrimaryChartCenter.name+' selecionado');
+ }catch(e){aisMessage('Região AIS: '+e.message)}
+}
+
 function renderAisRegions(){
  $('aisRegionList').textContent=aisExtraRegions.map((r,i)=>(i+1)+'. '+r.name+' ('+r.lat.toFixed(4)+', '+r.lon.toFixed(4)+', '+r.radius+' km)').join(' | ')||'Nenhuma região adicional';
 }
 function addAisChartRegion(){
  try{
-  const id=$('aisChartRegion').value;
-  const chart=JSON.parse(Native.kapFiles()).find(c=>c.id===id);
-  if(!chart||!Array.isArray(chart.corners)||chart.corners.length<3)throw Error('Selecione uma carta válida');
-  const lats=chart.corners.map(p=>Number(p[0])),lons=chart.corners.map(p=>Number(p[1]));
-  const lat=(Math.min(...lats)+Math.max(...lats))/2,lon=(Math.min(...lons)+Math.max(...lons))/2;
+  const {name,lat,lon}=selectedAisChartCenter();
   const radius=Number($('aisRadius').value);
   if(!(radius>=1&&radius<=300))throw Error('Raio inválido');
   if(aisExtraRegions.length>=8)throw Error('Máximo de oito regiões adicionais');
-  aisExtraRegions.push({name:chart.name,lat,lon,radius});renderAisRegions();
+  aisExtraRegions.push({name,lat,lon,radius});renderAisRegions();
  }catch(e){aisMessage('Região AIS: '+e.message)}
 }
 function clearAisRegions(){aisExtraRegions.length=0;renderAisRegions()}
@@ -415,10 +427,11 @@ function startAisInternet(){
  if(!key){aisMessage('Informe a chave AISStream');return}
  const gps=ownLast,gpsLat=gps?Number(gps.lat):NaN,gpsLon=gps?Number(gps.lon):NaN;
  const gpsFresh=gps&&Number.isFinite(gpsLat)&&Number.isFinite(gpsLon)&&Number.isFinite(Number(gps.time))&&Math.abs(Date.now()-Number(gps.time))<120000;
- lat=gpsFresh?gpsLat:-23.9608;lon=gpsFresh?gpsLon:-46.3336;
+ if(aisPrimaryChartCenter){lat=aisPrimaryChartCenter.lat;lon=aisPrimaryChartCenter.lon;}
+ else{lat=gpsFresh?gpsLat:-23.9608;lon=gpsFresh?gpsLon:-46.3336;}
  $('aisLat').value=lat.toFixed(6);$('aisLon').value=lon.toFixed(6);
  if(map)map.setView([lat,lon],Math.max(map.getZoom(),12));
- aisLog('AISStream centrado em '+(gpsFresh?'GPS':'Santos (padrão)')+': '+lat.toFixed(6)+', '+lon.toFixed(6));
+ aisLog('AISStream centrado em '+(aisPrimaryChartCenter?'carta '+aisPrimaryChartCenter.name:gpsFresh?'GPS':'Santos (padrão)')+': '+lat.toFixed(6)+', '+lon.toFixed(6));
  if(!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lon)||Math.abs(lon)>180||!(radius>=1&&radius<=300)){aisMessage('Latitude, longitude ou raio inválidos');return}
  if(aisPollTimer)clearInterval(aisPollTimer);aisPollTimer=null;
  localStorage.setItem('aisStreamKey',key);
