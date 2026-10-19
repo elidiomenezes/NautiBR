@@ -197,7 +197,7 @@ public class MainActivity extends Activity {
   }
   @JavascriptInterface public void copyText(String value){runOnUiThread(()->{ClipboardManager cm=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("NautiBR",value));});}
   @JavascriptInterface public void importCharts(){runOnUiThread(()->{
-   Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("*/*");i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/zip","application/octet-stream","application/x-bsb","image/png","image/jpeg","image/webp"});i.addCategory(Intent.CATEGORY_OPENABLE);
+   Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.setType("application/zip");i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/zip","application/x-zip-compressed","application/octet-stream"});i.addCategory(Intent.CATEGORY_OPENABLE);
    i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,PICK);
   });}
   @JavascriptInterface public String bsbFiles(){
