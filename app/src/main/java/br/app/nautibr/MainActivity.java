@@ -254,6 +254,8 @@ public class MainActivity extends Activity {
 
  }
  int importChartPackage(Uri uri,String packageName,int req)throws Exception{
+  if(req==PICK && (packageName==null || !packageName.matches("(?i)^[0-9_]+\\.zip$")))
+   throw new IOException("Nome de carta inválido: use apenas dígitos e underscore, com extensão .zip");
   File staged=File.createTempFile("nautibr-package-", ".zip",getCacheDir());
   File tempDir=new File(getCacheDir(),"nautibr-"+UUID.randomUUID().toString());
   tempDir.mkdirs();
